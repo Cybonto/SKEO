@@ -1,0 +1,15 @@
+aiohttp>=3.8.5
+beautifulsoup4>=4.12.2
+docling>=0.4.0
+fitz>=0.0.1.dev2
+langdetect>=1.0.9
+PyMuPDF>=1.22.5
+python-dotenv>=1.0.0
+pydantic>=2.7.1
+PyYAML>=6.0.1
+requests>=2.32.3
+spacy>=3.7.0
+tenacity>=8.2.3
+aiofiles
+uvloop
+en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl

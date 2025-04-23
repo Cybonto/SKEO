@@ -1,0 +1,88 @@
+# LLM Configuration
+llm:
+  api_endpoint: https://api.openai.com # Base URL for the LLM API
+  api_key: your_openai_api_key_here  # Overrides LLM_API_KEY env var
+  model: gpt-4-1106-preview  # LLM model identifier
+  api_base_path: /v1 # Base path for API calls (e.g., /v1 for OpenAI)
+  chat_endpoint: /chat/completions # Specific endpoint for chat completions
+  # health_endpoint: /health # Optional: Health check endpoint if available
+  max_tokens: 4096 # Max tokens for LLM response
+  temperature: 0.2 # LLM sampling temperature
+  retry_attempts: 3 # Number of retries for LLM API calls
+  timeout_seconds: 120 # Timeout for LLM API calls
+  validation_mode: strict  # "strict" enforces schema validation, "lenient" allows non-conforming responses
+
+# PDF Processing Settings
+pdf:
+  extract_method: docling  # Options: docling, pymupdf
+  search_metadata: true  # Whether to search for metadata online using SerpApi
+  max_text_length: 150000 # Max characters of full text to keep
+  language_detection: true # Enable language detection
+
+# Metadata Services (SerpApi for Google Scholar)
+metadata:
+  serpapi_api_key: your_serpapi_api_key_here # Overrides SERPAPI_API_KEY env var
+
+# Extraction Settings
+extraction:
+  confidence_threshold: 0.6 # Not currently used for filtering, only averaging
+  extract_components: # List of SKEO components to extract
+    - research_context
+    - theoretical_basis
+    - research_problem
+    - knowledge_gap
+    - research_question
+    - future_direction
+    - potential_application
+    - scientific_challenge
+    - methodological_challenge
+    - implementation_challenge
+    - limitation
+    - methodological_framework
+    # - material_tool # Example: Add other components if needed
+
+# Processing Settings
+processing:
+  concurrency_limit: 4 # Max number of PDFs to process concurrently
+  batch_size: 10 # Used for logging purposes
+  fail_fast: false  # If true, stops on the first PDF processing error
+  skip_existing: true  # If true, skips generating JSON if output file exists
+
+# Output Settings
+output:
+  # format: strapi # Implicitly Strapi format now
+  # create_subdirs_by_date: false # Not implemented
+  # compress_output: false # Not implemented
+  verbose_output: true # Controls some logging verbosity
+
+# Strapi Settings
+strapi:
+  url: http://localhost:1337  # Strapi instance URL (Overrides STRAPI_URL env var)
+  token: your_strapi_token_here  # Strapi API Token (Overrides STRAPI_API_TOKEN env var)
+  api_base_path: /api # Base path for Strapi API calls
+  direct_upload: false  # If true, uploads directly to Strapi after extraction
+  # upload_batch_size: 20 # Upload is currently sequential per paper
+  test_endpoints: true  # If true, tests Strapi endpoints before processing starts
+  # retry_failed_uploads: false # Not implemented
+  api_slugs: # Mapping from internal key to Strapi API ID (plural)
+    scientific_paper: "sciknow-25x1-scientific-papers"
+    research_context: "sciknow-25x1-research-contexts"
+    theoretical_basis: "sciknow-25x1-theoretical-bases"
+    research_problem: "sciknow-25x1-research-problems"
+    knowledge_gap: "sciknow-25x1-knowledge-gaps"
+    research_question: "sciknow-25x1-research-questions"
+    future_direction: "sciknow-25x1-future-directions"
+    potential_application: "sciknow-25x1-potential-applications"
+    scientific_challenge: "sciknow-25x1-scientific-challenges"
+    methodological_challenge: "sciknow-25x1-methodological-challenges"
+    implementation_challenge: "sciknow-25x1-implementation-challenges"
+    limitation: "sciknow-25x1-limitations"
+    methodological_framework: "sciknow-25x1-methodological-frameworks"
+    material_tool: "sciknow-25x1-material-tools"
+    # method_execution_instance: "sciknow-25x1-method-execution-instances"
+    # dataset: "sciknow-25x1-datasets"
+
+# Custom Prompt Overrides (optional - example below)
+# prompts:
+#   research_problem: |
+#     Extract the research problem. Context: {text} Respond JSON.

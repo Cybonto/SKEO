@@ -1,0 +1,403 @@
+
+# SKEO extraction prompt templates
+# Each template will be formatted with the text from the paper
+
+research_context:
+  |
+  I need to extract information about the research context from the following scientific paper. 
+  
+  The research context includes metadata about the environment in which the research is conducted, such as:
+  - The scientific discipline (e.g., Biology, Physics, Computer Science)
+  - The specific field of study (e.g., Molecular Oncology, Particle Physics, Machine Learning)
+  - Any associated project the research is part of
+  - Funding sources or grants that supported the research
+  - Institutions involved in conducting the research
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the research context information in a structured JSON format:
+  ```json
+  {{
+    "discipline": "The primary scientific discipline (choose from: Biology, Chemistry, Physics, Computer Science, Engineering, Mathematics, Medicine, Psychology, Sociology, Economics, Political Science, Education, Environmental Science, Earth Science, Astronomy, Philosophy, Linguistics, Literature, History, Anthropology, Business, Law, Arts, Interdisciplinary, Other)",
+    "fieldOfStudy": "The specific field or subfield within the discipline",
+    "associatedProject": "Project or initiative the research is part of, if mentioned",
+    "fundingSources": [
+      {{
+        "funderName": "Name of funding organization",
+        "grantNumber": "Grant identifier if available"
+      }}
+    ],
+    "institutions": [
+      {{
+        "name": "Institution name",
+        "location": "Location if available"
+      }}
+    ],
+    "extractionConfidence": 0.8 // Your confidence in this extraction on a scale of 0 to 1
+  }}
+  ```
+  
+  If some information is not available in the text, use null or empty arrays as appropriate. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+theoretical_basis:
+  |
+  I need to extract information about the theoretical foundations guiding the research from the following scientific paper.
+  
+  The theoretical basis includes:
+  - Underlying theories that inform the research
+  - Conceptual frameworks explicitly presented or referenced
+  - Guiding models being tested or applied
+  - Philosophical paradigm/approach (e.g., positivism, constructivism)
+  - Schools of thought influencing the methods
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the theoretical basis information in a structured JSON format:
+  ```json
+  {{
+    "underlyingTheories": [
+      {{
+        "theoryName": "Name of the theory",
+        "relevance": "How this theory informs the research"
+      }}
+    ],
+    "conceptualFrameworkReference": "Description of any conceptual frameworks mentioned",
+    "guidingModels": [
+      {{
+        "modelName": "Name of the model",
+        "relevance": "How this model is used in the research"
+      }}
+    ],
+    "philosophicalParadigm": "The philosophical approach (choose from: Positivism, Post-positivism, Constructivism, Pragmatism, Critical Theory, Interpretivism, Realism, Relativism, Empiricism, Rationalism, Other, Not Specified)",
+    "schoolOfThought": "Specific tradition of thought or methodological approach",
+    "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
+  }}
+  ```
+  
+  If some information is not available in the text, use null or empty arrays as appropriate. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+research_problem:
+  |
+  I need to extract information about the core research problem addressed in the following scientific paper.
+  
+  The research problem is the central issue, question, phenomenon, or unsatisfactory situation that the research aims to address, understand, explain, or solve. It represents the primary challenge motivating the entire study.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the research problem information in a structured JSON format:
+  ```json
+  {{
+    "problemStatement": "A concise description of the core problem the research addresses",
+    "problemScope": "The boundaries or scope of the problem being addressed",
+    "problemType": "Type of problem (choose from: KnowledgeProblem, DesignProblem, EmpiricalProblem, TheoreticalProblem, MethodologicalProblem, ApplicationProblem, InterdisciplinaryProblem, Other)",
+    "problemImportance": "Why this problem matters to the field",
+    "businessRelevance": "How the problem relates to business needs, market gaps, or industry challenges; potential economic impact of solving the problem",
+    "extractionConfidence": 0.8 // Your confidence in this extraction on a scale of 0 to 1
+  }}
+  ```
+  
+  If some information is not available in the text, use null values. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+knowledge_gap:
+  |
+  I need to extract information about knowledge gaps identified in the following scientific paper.
+  
+  A knowledge gap is an identified area within a specific field where knowledge, understanding, data, or capability is recognized as lacking, insufficient, or uncertain based on the current state of the art. Knowledge gaps often serve as primary motivation for undertaking research.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract knowledge gap information in a structured JSON format:
+  ```json
+  [
+    {{
+      "gapDescription": "Description of a specific lack of knowledge or capability",
+      "relatedDomain": "The field or area where the gap exists",
+      "gapSignificance": "Why filling this gap is important",
+      "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
+    }}
+  ]
+  ```
+  
+  Return an array with multiple knowledge gaps if several are identified in the paper. If no clear knowledge gaps are mentioned, return an empty array. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+research_question:
+  |
+  I need to extract the specific research questions addressed in the following scientific paper.
+  
+  A research question is a specific, focused, interrogative statement that the research aims to answer directly. Research questions serve to operationalize the investigation of a broader research problem or knowledge gap, providing clear direction for the study's methodology and analysis.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the research questions in a structured JSON format:
+  ```json
+  [
+    {{
+      "questionText": "The actual question being asked, as stated in the paper",
+      "questionType": "Type of question (choose from: Descriptive, Exploratory, Explanatory, Predictive, Evaluative, Confirmatory, Methodological, Causal, Comparative, Correlational, Theoretical, Applied, Other)",
+      "relatedVariables": [
+        {{
+          "variableName": "Name of variable investigated in the question",
+          "variableRole": "Role of the variable (e.g., Independent, Dependent, Mediator, Moderator)"
+        }}
+      ],
+      "extractionConfidence": 0.8 // Your confidence in this extraction on a scale of 0 to 1
+    }}
+  ]
+  ```
+  
+  Return an array with multiple research questions if several are addressed in the paper. If no explicit research questions are found, try to formulate them based on the stated objectives or hypotheses. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+future_direction:
+  |
+  I need to extract the future directions or future work suggested in the following scientific paper.
+  
+  Future directions are explicit suggestions, recommendations, or proposals made by the authors for subsequent research activities that should follow from the current work. These often arise from the study's findings, limitations, or unanswered questions.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the future directions in a structured JSON format:
+  ```json
+  [
+    {{
+      "directionDescription": "Description of the suggested research direction",
+      "timeframe": "Timeframe for the suggestion (choose from: Short-term, Medium-term, Long-term, Not specified)",
+      "requiredResources": "Resources needed to pursue this direction, if mentioned",
+      "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
+    }}
+  ]
+  ```
+  
+  Return an array with multiple future directions if several are suggested in the paper. If no future directions are explicitly mentioned, return an empty array. Look for phrases like 'future work should...', 'further research is needed...', 'a promising direction is...', etc. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+potential_application:
+  |
+  I need to extract information about potential applications mentioned in the following scientific paper.
+  
+  A potential application is a suggested or envisioned practical use, implication, benefit, or real-world relevance of the research findings, methods, developed artifacts, or acquired knowledge. This extends beyond the immediate academic contribution to potential impact in industry, policy, clinical practice, or society.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the potential applications in a structured JSON format:
+  ```json
+  [
+    {{
+      "applicationDescription": "Description of the potential application",
+      "targetSector": "Sector where the application is relevant (choose from: Healthcare, Industry, Technology, Education, Environment, Agriculture, Energy, Transportation, Finance, Government, Defense, Space, Consumer, Social Services, Cultural, Infrastructure, Multiple, Other)",
+      "implementationReadiness": "Readiness level of the application (choose from: Conceptual, Proof of Concept, Prototype, Ready for Deployment, Not specified)",
+      "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
+    }}
+  ]
+  ```
+  
+  Return an array with multiple potential applications if several are mentioned in the paper. If no potential applications are explicitly mentioned, return an empty array. Look for phrases like 'potential applications include...', 'could be used for...', 'has implications for...', etc. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+scientific_challenge:
+  |
+  I need to extract information about scientific challenges mentioned in the following scientific paper.
+  
+  A scientific challenge is a fundamental difficulty or obstacle inherent to the scientific domain itself, the nature of the phenomenon under investigation, or the current limits of scientific theory or understanding. These challenges often relate to intrinsic complexity, scale, randomness, emergent behavior, or the lack of foundational theories or models.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the scientific challenges in a structured JSON format:
+  ```json
+  [
+    {{
+      "challengeDescription": "Description of the fundamental scientific challenge",
+      "challengeType": "Type of challenge (choose from: ComplexityChallenge, ScaleChallenge, TheoryGap, MultidisciplinaryChallenge, EmergentBehavior, Other)",
+      "severity": "Severity of the challenge (choose from: Minor, Moderate, Major, Fundamental)",
+      "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
+    }}
+  ]
+  ```
+  
+  Return an array with multiple scientific challenges if several are mentioned in the paper. If no scientific challenges are explicitly mentioned, return an empty array. Focus on fundamental scientific challenges rather than methodological or implementation issues. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+methodological_challenge:
+  |
+  I need to extract information about methodological challenges mentioned in the following scientific paper.
+  
+  A methodological challenge is a difficulty, hurdle, complexity, or potential source of error encountered or inherent in the specific research methodology employed. This includes issues related to study design, data collection procedures, measurement validity and reliability, sampling strategies, experimental control, potential biases, ethical considerations in execution, or the application of analytical techniques.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the methodological challenges in a structured JSON format:
+  ```json
+  [
+    {{
+      "challengeDescription": "Description of the methodological challenge",
+      "researchPhase": "Phase where the challenge was encountered (choose from: StudyDesign, DataCollection, Analysis, Interpretation, Validation, MultiplePhases, Other)",
+      "mitigationStrategy": "Approaches used to address or minimize the challenge, if mentioned",
+      "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
+    }}
+  ]
+  ```
+  
+  Return an array with multiple methodological challenges if several are mentioned in the paper. If no methodological challenges are explicitly mentioned, return an empty array. Look for issues specifically related to the research methodology rather than fundamental scientific challenges or implementation issues. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+implementation_challenge:
+  |
+  I need to extract information about implementation challenges mentioned in the following scientific paper.
+  
+  An implementation challenge is a specific difficulty, obstacle, or constraint encountered when attempting to build, deploy, apply, or scale a particular approach, method, algorithm, technology, or intervention in a concrete or real-world setting. These challenges are often related to technical hurdles, system integration, resource limitations (cost, time, hardware, infrastructure), scalability, usability, or dealing with the complexities of practical application environments.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the implementation challenges in a structured JSON format:
+  ```json
+  [
+    {{
+      "challengeDescription": "Description of the implementation challenge",
+      "resourceConstraint": "Resource limitation involved (choose from: Cost, Time, Hardware, Software, Personnel, Expertise, Infrastructure, Data, Scale, Multiple, Other, None)",
+      "technicalHurdle": "Specific technical difficulty encountered, if applicable",
+      "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
+    }}
+  ]
+  ```
+  
+  Return an array with multiple implementation challenges if several are mentioned in the paper. If no implementation challenges are explicitly mentioned, return an empty array. Focus on practical application challenges rather than methodological issues or fundamental scientific challenges. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+limitation:
+  |
+  I need to extract information about limitations acknowledged in the following scientific paper.
+  
+  A limitation is an acknowledged constraint, shortcoming, boundary, or weakness of the study's scope, methodology, data, analysis, or findings, as stated by the authors. Limitations potentially affect the interpretation, validity, generalizability, or applicability of the research results. They represent the recognized boundaries of the contribution.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the limitations in a structured JSON format:
+  ```json
+  [
+    {{
+      "limitationDescription": "Description of the specific limitation",
+      "limitationType": "Type of limitation (choose from: SampleSizeLimitation, GeneralizabilityIssue, MeasurementError, SelectionBias, ScopeLimitation, TemporalLimitation, ResourceConstraint, ValidityThreat, ReliabilityIssue, Other)",
+      "impactOnFindings": "How the limitation might affect results or conclusions",
+      "businessConstraints": "How the limitation might affect practical implementation in business settings, including cost barriers, scalability issues, implementation timeframes, or regulatory hurdles",
+      "extractionConfidence": 0.8 // Your confidence in this extraction on a scale of 0 to 1
+    }}
+  ]
+  ```
+  
+  Return an array with multiple limitations if several are acknowledged in the paper. If no limitations are explicitly mentioned, return an empty array. Look for sections titled "Limitations" or phrases like "a limitation of this study is...", "findings may not generalize because...", "we acknowledge that...", etc. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
+
+methodological_framework:
+  |
+  I need to extract detailed information about the methodological framework used in the following scientific paper.
+  
+  The methodological framework is the structured approach used to address the research problem, including study design, methods, procedures, and analytical techniques.
+  
+  Paper content:
+  {text}
+  
+  Please analyze the text and extract the methodological framework information in a structured JSON format:
+  ```json
+  {{
+    "name": "Name or identifier for the methodological framework",
+    "description": "General description of the methodological approach",
+    "studyDesign": {{
+      "designType": "Overall research design (choose from: Experimental, QuasiExperimental, RCT, Observational, CohortStudy, CaseControlStudy, CrossSectionalStudy, LongitudinalStudy, Survey, CaseStudy, Ethnography, GroundedTheory, Simulation, MetaAnalysis, MixedMethods, Other)",
+      "controlGroup": true or false,
+      "randomization": true or false,
+      "blinding": "Type of blinding (choose from: None, SingleBlind, DoubleBlind, TripleBlind, NotSpecified)",
+      "timeDimension": "Temporal aspect (choose from: CrossSectional, Longitudinal, Retrospective, Prospective, NotSpecified)",
+      "designDetails": "Additional design details"
+    }},
+    "populationAndSampling": {{
+      "targetPopulation": "Description of the population of interest",
+      "sampleSize": 123,
+      "samplingMethod": "Method used for sampling (choose from: Random, Stratified, Cluster, Systematic, Convenience, Purposive, Snowball, Quota, TotalPopulation, Other, NotSpecified)",
+      "inclusionCriteria": "Criteria for including participants/units",
+      "exclusionCriteria": "Criteria for excluding participants/units"
+    }},
+    "variables": [
+      {{
+        "variableName": "Name of variable",
+        "variableRole": "Role in the study (choose from: Independent, Dependent, Mediator, Moderator, Control, Confounder, Covariate, Outcome, Other)",
+        "conceptualDefinition": "Theoretical definition",
+        "operationalization": "How the variable was measured or manipulated",
+        "measurementScale": "Scale type (choose from: Nominal, Ordinal, Interval, Ratio, Categorical, Continuous, Other)",
+        "units": "Unit of measurement"
+      }}
+    ],
+    "materialsAndTools": [
+      {{
+        "itemName": "Name of material or tool",
+        "itemType": "Type (choose from: Equipment, Software, Dataset, Reagent, BiologicalSampleType, Questionnaire, Ontology, Database, Protocol, Algorithm, Other)",
+        "identifier": "Version, model number, or other identifier",
+        "specifications": "Key technical details",
+        "roleInProcedure": "How the item was used"
+      }}
+    ],
+    "procedures": [
+      {{
+        "procedureName": "Name of procedure",
+        "procedureDescription": "Overall description of procedure",
+        "steps": [
+          {{
+            "stepNumber": 1,
+            "description": "Description of step",
+            "inputs": "Materials or data used",
+            "outputs": "Materials or data produced",
+            "parameters": {{"parameterName": "value"}}
+          }}
+        ]
+      }}
+    ],
+    "dataCollection": {{
+      "collectionMethod": "Method used (choose from: SurveyAdministration, Interview, Observation, SensorReading, ImageAcquisition, PhysiologicalMeasurement, DocumentAnalysis, ExperimentalManipulation, LogFileExtraction, WebScraping, Other)",
+      "instrumentDescription": "Description of instruments used",
+      "collectionSetting": "Where collection took place",
+      "collectionTimeframe": "When collection occurred",
+      "dataRecordingFormat": "Format of raw data"
+    }},
+    "dataAnalysis": {{
+      "analysisApproach": "Overall approach (choose from: StatisticalAnalysis, MachineLearning, QualitativeContentAnalysis, ThematicAnalysis, SimulationAnalysis, MathematicalModeling, NetworkAnalysis, MetaAnalysis, MixedMethodsAnalysis, Other)",
+      "statisticalTests": "Statistical tests used",
+      "algorithmsUsed": "Algorithms or computational methods",
+      "softwareDetails": "Software packages and versions",
+      "parameterSettings": "Key parameters for algorithms or tests",
+      "dataPreprocessingSteps": "Data cleaning or transformation steps"
+    }},
+    "resultsRepresentation": {{
+      "representationFormat": "Format used (choose from: TabularData, StatisticalSummary, Graph, Image, TextualDescription, MathematicalEquation, ModelOutputFile, Multiple, Other)",
+      "visualizationType": "Type of visualization if applicable",
+      "reportingStandard": "Reporting guidelines followed"
+    }},
+    "validationAndVerification": {{
+      "validationTypes": ["Type of validation used"],
+      "validationProcedure": "Description of validation steps",
+      "validationMetrics": "Metrics used to assess validation",
+      "validationResults": "Outcomes of validation",
+      "industryStandards": "Industry standards or regulatory frameworks followed"
+    }},
+    "ethicalConsiderations": {{
+      "ethicsApprovalBody": "Body that provided approval",
+      "approvalIdentifier": "Protocol or approval number",
+      "informedConsentProcedure": "How consent was obtained",
+      "dataAnonymization": true or false,
+      "privacyMeasures": "Steps to protect privacy"
+    }},
+    "reproducibilityAndSharing": {{
+      "dataAvailabilityStatement": "Statement about data availability",
+      "dataRepository": "Repository where data is stored",
+      "codeAvailabilityStatement": "Statement about code availability",
+      "codeRepository": "Repository where code is stored",
+      "protocolAvailability": "How to access detailed protocols",
+      "commercializationPartners": "Organizations involved in commercialization"
+    }},
+    "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
+  }}
+  ```
+  
+  Focus on the key methodological aspects most relevant to this particular paper - not all fields need to be filled if that information isn't present. If certain sections are not applicable to this type of research, leave them as null or empty structures. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.
