@@ -16,16 +16,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Use direct imports since all modules are expected in the same directory
-try:
-    from config_loader import load_params
-    from skeo_extractor import SKEOExtractor
-    # Import StrapiClient only if needed for pre-checks
-    from strapi_client import StrapiClient
-except ImportError as e:
-    # Provide a more specific error message if imports fail
-    print(f"Error: Could not import necessary modules ({e}).", file=sys.stderr)
-    print("Ensure skeo modules (config_loader.py, skeo_extractor.py, etc.) are in the same directory as skeo.py.", file=sys.stderr)
-    sys.exit(1)
+# try:
+from config_loader import load_params
+from skeo_extractor import SKEOExtractor
+# Import StrapiClient only if needed for pre-checks
+from strapi_client import StrapiClient
+# except ImportError as e:
+#     # Provide a more specific error message if imports fail
+#     print(f"Error: Could not import necessary modules ({e}).", file=sys.stderr)
+#     print("Ensure skeo modules (config_loader.py, skeo_extractor.py, etc.) are in the same directory as skeo.py.", file=sys.stderr)
+#     sys.exit(1)
 
 
 # Configure logging (basic setup)

@@ -2,7 +2,7 @@
 llm:
   api_endpoint: https://api.openai.com # Base URL for the LLM API
   #api_key: your_openai_api_key_here  # Overrides LLM_API_KEY env var
-  model: gpt-4-1106-preview  # LLM model identifier
+  model: o1-mini  # LLM model identifier
   api_base_path: /v1 # Base path for API calls (e.g., /v1 for OpenAI)
   chat_endpoint: /chat/completions # Specific endpoint for chat completions
   # health_endpoint: /health # Optional: Health check endpoint if available

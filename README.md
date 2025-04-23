@@ -2,6 +2,8 @@
 
 This document outlines the general specification for the task of extracting scientific knowledge from peer-reviewed papers with a focus on Scientific Research: Methods, Opportunities, and Challenges.
 
+Please see the `SKEO_extractor` folder for more information on the knowledge extraction tool.
+
 ## 1. Introduction
 
 ### 1a. The Business Imperative for Structured Scientific Knowledge

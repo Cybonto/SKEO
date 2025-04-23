@@ -45,7 +45,12 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -r skeo-requirements.txt
 
 # Download spaCy model
-python -m spacy download en_core_web_sm
+python -m spacy download en_core_web_md
+```
+
+Note: if you have pip related issues in downloading the spaCy model, ensure pip in correctly installed and is accessible. Run the following command
+```bash
+python -m ensurepip --upgrade
 ```
 
 ### Option 2: Install using pip
@@ -63,7 +68,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r skeo-requirements.txt
 
 # Download spaCy model
-python -m spacy download en_core_web_sm
+python -m spacy download en_core_web_md
 ```
 
 ### Dependencies

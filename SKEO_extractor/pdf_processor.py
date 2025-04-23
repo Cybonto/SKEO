@@ -4,8 +4,9 @@ import os
 import re
 import logging
 import asyncio
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF
 from typing import Dict, List, Any, Optional
+import sys
 
 # Use conditional import for Docling to avoid hard dependency if not used
 try:
@@ -35,8 +36,8 @@ try:
     from llm_client import LLMClient
     from metadata_fetcher import SerpApiMetadataFetcher
 except ImportError as e:
-     print(f"ERROR in pdf_processor.py: Could not import sibling modules ({e}). Ensure all .py files are in the same directory and the script is run from that directory.", file=sys.stderr)
-     raise
+    print(f"ERROR in pdf_processor.py: Could not import sibling modules ({e}). Ensure all .py files are in the same directory and the script is run from that directory.", file=sys.stderr)
+    raise
 
 logger = logging.getLogger('skeo.pdf')
 
@@ -72,7 +73,6 @@ class PDFProcessor:
 
         logger.info(f"PDFProcessor initialized with extraction method: {self.extract_method}")
 
-
     async def extract_text_from_pdf(self, pdf_path: str) -> Optional[Dict[str, Any]]:
         """
         Extract structured text and metadata from a PDF file.
@@ -84,33 +84,57 @@ class PDFProcessor:
             Dict containing 'metadata', 'full_text', 'sections', 'language', or None if extraction fails.
         """
         logger.info(f"Processing PDF: {pdf_path}")
-        doc = None # PyMuPDF doc object
+        doc = None  # PyMuPDF doc object
         try:
             # --- Basic Metadata Extraction (PyMuPDF for initial info) ---
             try:
-                 doc = fitz.open(pdf_path)
-                 pdf_metadata_raw = doc.metadata or {}
-                 basic_metadata = {
+                doc = fitz.open(pdf_path)
+                pdf_metadata_raw = doc.metadata or {}
+                basic_metadata = {
                     "title": pdf_metadata_raw.get("title", ""),
                     "authors_str": pdf_metadata_raw.get("author", ""),
                     "subject": pdf_metadata_raw.get("subject", ""),
                     "keywords_str": pdf_metadata_raw.get("keywords", ""),
                     "doi": ""
-                 }
-                 cleaned_authors = [a.strip() for a in basic_metadata["authors_str"].split(',') if a.strip()]
-                 first_author_for_search = cleaned_authors[0] if cleaned_authors else None
-                 title_for_search = basic_metadata["title"]
+                }
+                cleaned_authors = [a.strip() for a in basic_metadata["authors_str"].split(',') if a.strip()]
+                first_author_for_search = cleaned_authors[0] if cleaned_authors else None
+                title_for_search = basic_metadata["title"]
 
-                 # If PyMuPDF title is empty, try to guess from filename
-                 if not title_for_search:
-                      title_for_search = os.path.splitext(os.path.basename(pdf_path))[0].replace('_', ' ')
-                      logger.info(f"Using filename as initial title guess: {title_for_search}")
+                # If PyMuPDF title is empty, try to extract title from Docling converted text
+                if not title_for_search and DOCLING_AVAILABLE:
+                    logger.info("Attempting to extract title from Docling converted text.")
+                    title_for_search = await self._extract_title_with_docling(pdf_path)
+                    if title_for_search:
+                        logger.info(f"Extracted title from Docling: {title_for_search}")
 
+                # If title is still empty, try to guess from filename
+                if not title_for_search:
+                    title_for_search = os.path.splitext(os.path.basename(pdf_path))[0].replace('_', ' ')
+                    logger.info(f"Using filename as initial title guess: {title_for_search}")
 
             except Exception as fitz_err:
-                 logger.error(f"Error opening PDF or reading basic metadata with PyMuPDF for {pdf_path}: {fitz_err}")
-                 # If we can't even open the PDF, we can't proceed
-                 return None
+                logger.error(f"Error opening PDF or reading basic metadata with PyMuPDF for {pdf_path}: {fitz_err}")
+                # If we can't even open the PDF, we can't proceed
+                return None
+
+            # --- Double-check for metadata consistency ---
+            # Check if title or author's last name is present in page 1
+            title_in_text = False
+            author_in_text = False
+            try:
+                page = doc.load_page(0)  # First page
+                page_text = page.get_text("text")
+                if title_for_search and title_for_search.strip().lower() in page_text.lower():
+                    title_in_text = True
+                if first_author_for_search and first_author_for_search.strip().lower() in page_text.lower():
+                    author_in_text = True
+                if not title_in_text and not author_in_text:
+                    logger.warning("Neither the title nor the first author name was found on the first page text. Metadata may be inconsistent.")
+                else:
+                    logger.info("Title or first author name found in the first page text. Proceeding with metadata extraction.")
+            except Exception as e:
+                logger.warning(f"Error extracting text from first page for consistency check: {e}")
 
             # --- Online Metadata Fetching (SerpApi) ---
             online_metadata = None
@@ -123,8 +147,8 @@ class PDFProcessor:
             # --- Consolidate Metadata ---
             # Prioritize online metadata, fallback to PDF metadata.
             final_metadata = {
-                "title": (online_metadata or {}).get("title") or basic_metadata["title"] or title_for_search, # Use guess if still empty
-                "authors": (online_metadata or {}).get("authors", []), # Assumes fetcher returns list of dicts
+                "title": (online_metadata or {}).get("title") or basic_metadata["title"] or title_for_search,  # Use guess if still empty
+                "authors": (online_metadata or {}).get("authors", []),  # Assumes fetcher returns list of dicts
                 "doi": (online_metadata or {}).get("doi") or basic_metadata["doi"],
                 "journal": (online_metadata or {}).get("journal", ""),
                 "publicationDate": (online_metadata or {}).get("publicationDate") or (online_metadata or {}).get("year"),
@@ -133,14 +157,14 @@ class PDFProcessor:
                 "issue": (online_metadata or {}).get("issue", ""),
                 "pages": (online_metadata or {}).get("pages", ""),
                 "keywords": (online_metadata or {}).get("keywords", []),
-                "abstract": (online_metadata or {}).get("abstract", ""), # Pre-fill abstract if found
-                "fileUrl": (online_metadata or {}).get("fileUrl", ""), # Link from SerpApi
-                "pdfPath": (online_metadata or {}).get("pdfPath") # Direct PDF link from SerpApi resource if found
+                "abstract": (online_metadata or {}).get("abstract", ""),  # Pre-fill abstract if found
+                "fileUrl": (online_metadata or {}).get("fileUrl", ""),  # Link from SerpApi
+                "pdfPath": (online_metadata or {}).get("pdfPath")  # Direct PDF link from SerpApi resource if found
             }
 
             # If authors weren't found online, parse from PDF metadata string
             if not final_metadata["authors"] and basic_metadata["authors_str"]:
-                 final_metadata["authors"] = [{"name": name} for name in cleaned_authors]
+                final_metadata["authors"] = [{"name": name} for name in cleaned_authors]
 
             # Parse keywords from PDF metadata string if not found online
             if not final_metadata["keywords"] and basic_metadata["keywords_str"]:
@@ -148,16 +172,15 @@ class PDFProcessor:
 
             # Try to extract year from publication date if not found online/parsed
             if not final_metadata["year"] and final_metadata["publicationDate"]:
-                 year_match = re.search(r'\b(19|20)\d{2}\b', str(final_metadata["publicationDate"]))
-                 if year_match:
-                     final_metadata["year"] = year_match.group(0)
-
+                year_match = re.search(r'\b(19|20)\d{2}\b', str(final_metadata["publicationDate"]))
+                if year_match:
+                    final_metadata["year"] = year_match.group(0)
 
             # --- Text & Section Extraction ---
             extraction_result = None
             if self.extract_method == "docling":
                 extraction_result = await self._extract_with_docling(pdf_path, final_metadata)
-            else: # Default or "pymupdf"
+            else:  # Default or "pymupdf"
                 # Pass the already opened fitz document
                 extraction_result = await self._extract_with_pymupdf(doc, final_metadata)
 
@@ -169,26 +192,81 @@ class PDFProcessor:
             final_metadata = await self._refine_metadata_from_text(
                 extraction_result["metadata"], extraction_result["full_text"]
             )
-            extraction_result["metadata"] = final_metadata # Update metadata in the result dict
+            extraction_result["metadata"] = final_metadata  # Update metadata in the result dict
 
             # --- Logging Final Checks ---
-            if not final_metadata.get("doi"): logger.info(f"DOI could not be finalized for {pdf_path}")
-            if not final_metadata.get("year"): logger.info(f"Year could not be finalized for {pdf_path}")
-            if not final_metadata.get("title"): logger.error(f"Title could not be finalized for {pdf_path}")
+            if not final_metadata.get("doi"):
+                logger.info(f"DOI could not be finalized for {pdf_path}")
+            if not final_metadata.get("year"):
+                logger.info(f"Year could not be finalized for {pdf_path}")
+            if not final_metadata.get("title"):
+                logger.error(f"Title could not be finalized for {pdf_path}")
 
             return extraction_result
 
         except Exception as e:
             logger.error(f"General error processing PDF {pdf_path}: {str(e)}", exc_info=True)
-            return None # Indicate failure
+            return None  # Indicate failure
         finally:
             if doc:
-                try: doc.close()
-                except Exception as close_err: logger.warning(f"Error closing PDF {pdf_path}: {close_err}")
+                try:
+                    doc.close()
+                except Exception as close_err:
+                    logger.warning(f"Error closing PDF {pdf_path}: {close_err}")
+
+    async def _extract_title_with_docling(self, pdf_path: str) -> Optional[str]:
+        """Attempt to extract the title from the first highest-level markdown header using Docling."""
+        if not DOCLING_AVAILABLE:
+            logger.warning("Docling is not available. Cannot extract title using Docling.")
+            return None
+        try:
+            # Configure Docling pipeline options for minimal conversion
+            pipeline_opts = PdfPipelineOptions(
+                max_num_pages=1,  # Only process the first page
+                enable_remote_services=False,
+                do_code_enrichment=False,
+                do_formula_enrichment=False,
+                do_picture_classification=False,
+                do_picture_description=False,
+                generate_picture_images=False,
+                do_table_structure=False,
+            )
+
+            converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)
+                }
+            )
+
+            # Run conversion in a separate thread managed by asyncio
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: converter.convert(pdf_path)
+            )
+
+            if result and result.document:
+                markdown_text = result.document.export_to_markdown()
+                # Now, extract the first highest-level markdown header
+                lines = markdown_text.splitlines()
+                for line in lines:
+                    line_stripped = line.strip()
+                    if line_stripped.startswith('# '):
+                        extracted_title = line_stripped[2:].strip()
+                        if extracted_title:
+                            return extracted_title
+                        else:
+                            continue
+            else:
+                logger.warning("Docling conversion did not yield any text.")
+        except Exception as e:
+            logger.warning(f"Error during Docling conversion for title extraction: {e}")
+        return None
 
     async def _extract_with_docling(self, pdf_path: str, initial_metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Extract text using Docling's DocumentConverter."""
-        if not DOCLING_AVAILABLE: return None
+        if not DOCLING_AVAILABLE:
+            return None
         logger.info(f"Extracting text using Docling for {pdf_path}")
         metadata = initial_metadata.copy()
         try:
@@ -209,7 +287,6 @@ class PDFProcessor:
             pipeline_opts.table_structure_options.mode = TableFormerMode.FAST if tf_mode_str == "FAST" else TableFormerMode.ACCURATE
             pipeline_opts.table_structure_options.do_cell_matching = self.docling_options_config.get("table_do_cell_matching", True)
 
-
             converter = DocumentConverter(
                 format_options={
                     InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)
@@ -225,12 +302,12 @@ class PDFProcessor:
             if isinstance(max_pages, int):
                 convert_kwargs['max_num_pages'] = max_pages
             elif max_pages is not None:
-                 logger.warning(f"Invalid value '{max_pages}' for docling_options.max_num_pages in config, expected integer. Ignoring limit.")
+                logger.warning(f"Invalid value '{max_pages}' for docling_options.max_num_pages in config, expected integer. Ignoring limit.")
 
             if isinstance(max_size, int):
                 convert_kwargs['max_file_size'] = max_size
             elif max_size is not None:
-                 logger.warning(f"Invalid value '{max_size}' for docling_options.max_file_size in config, expected integer. Ignoring limit.")
+                logger.warning(f"Invalid value '{max_size}' for docling_options.max_file_size in config, expected integer. Ignoring limit.")
 
             logger.debug(f"Calling Docling convert with kwargs: {convert_kwargs}")
 
@@ -238,13 +315,13 @@ class PDFProcessor:
             # Run conversion in a separate thread managed by asyncio to avoid blocking
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
-                None, # Use default executor
+                None,  # Use default executor
                 lambda: converter.convert(pdf_path, **convert_kwargs)
             )
 
             if not result or not result.document:
-                 logger.error(f"Docling conversion failed for {pdf_path}")
-                 return None
+                logger.error(f"Docling conversion failed for {pdf_path}")
+                return None
 
             # Export to Markdown for section parsing
             markdown_text = result.document.export_to_markdown()
@@ -255,19 +332,20 @@ class PDFProcessor:
 
             # Pre-fill abstract if not found via metadata search
             if not metadata.get("abstract") and sections.get("abstract"):
-                 metadata["abstract"] = sections["abstract"][:1000] # Limit length
+                metadata["abstract"] = sections["abstract"][:1000]  # Limit length
 
             # Infer missing sections with LLM if needed
             if not all(sections.get(s) for s in ["introduction", "methodology", "results", "discussion"]):
-                 logger.info("Attempting LLM section inference based on Docling Markdown.")
-                 await self._infer_sections_with_llm(markdown_text, sections)
+                logger.info("Attempting LLM section inference based on Docling Markdown.")
+                await self._infer_sections_with_llm(markdown_text, sections)
 
             # Ensure required sections exist
             required_sections = ["abstract", "introduction", "methodology", "results", "discussion", "conclusion", "references"]
-            for section in required_sections: sections.setdefault(section, "")
+            for section in required_sections:
+                sections.setdefault(section, "")
 
             return {
-                "metadata": metadata, # Metadata refined later from text
+                "metadata": metadata,  # Metadata refined later from text
                 "full_text": markdown_text[:self.max_text_length],
                 "sections": sections,
                 "language": language
@@ -275,7 +353,7 @@ class PDFProcessor:
 
         except Exception as e:
             logger.error(f"Error during Docling processing for {pdf_path}: {str(e)}", exc_info=True)
-            return None # Indicate failure
+            return None  # Indicate failure
 
     async def _extract_with_pymupdf(self, doc: fitz.Document, initial_metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Extract text using PyMuPDF (simpler layout analysis)."""
@@ -283,17 +361,17 @@ class PDFProcessor:
         metadata = initial_metadata.copy()
         full_text = ""
         sections = {
-            "abstract": metadata.get("abstract", ""), # Use pre-filled if available
+            "abstract": metadata.get("abstract", ""),  # Use pre-filled if available
             "introduction": "", "methodology": "", "results": "",
             "discussion": "", "conclusion": "", "references": ""
         }
         try:
             for page_num, page in enumerate(doc):
                 try:
-                    full_text += page.get_text("text") + "\n" # Basic text extraction
+                    full_text += page.get_text("text") + "\n"  # Basic text extraction
                 except Exception as page_err:
-                     logger.warning(f"Error extracting text from page {page_num+1} of {doc.name}: {page_err}")
-                     full_text += "[Content Extraction Error]\n"
+                    logger.warning(f"Error extracting text from page {page_num+1} of {doc.name}: {page_err}")
+                    full_text += "[Content Extraction Error]\n"
 
             if not full_text:
                 logger.error(f"PyMuPDF extracted no text from {doc.name}")
@@ -306,26 +384,27 @@ class PDFProcessor:
             await self._infer_sections_with_llm(full_text, sections)
 
             # Ensure required sections exist
-            for section in sections.keys(): sections.setdefault(section, "")
+            for section in sections.keys():
+                sections.setdefault(section, "")
 
             # Ensure abstract is populated if possible
             if not sections["abstract"] and metadata.get("abstract"):
-                 sections["abstract"] = metadata["abstract"]
-
+                sections["abstract"] = metadata["abstract"]
 
             return {
-                "metadata": metadata, # Metadata refined later from text
+                "metadata": metadata,  # Metadata refined later from text
                 "full_text": full_text[:self.max_text_length],
                 "sections": sections,
                 "language": language
             }
         except Exception as e:
-             logger.error(f"Error during PyMuPDF processing for {doc.name}: {str(e)}", exc_info=True)
-             return None # Indicate failure
+            logger.error(f"Error during PyMuPDF processing for {doc.name}: {str(e)}", exc_info=True)
+            return None  # Indicate failure
 
     async def _detect_language(self, text: str) -> Optional[str]:
         """Detect language from text snippet."""
-        if not self.language_detection or not text: return None
+        if not self.language_detection or not text:
+            return None
         try:
             snippet = text[:min(len(text), 2000)]
             language = detect(snippet)
@@ -335,14 +414,15 @@ class PDFProcessor:
             logger.warning("Language detection failed for document.")
             return None
         except Exception as e:
-             logger.warning(f"Error during language detection: {e}")
-             return None
+            logger.warning(f"Error during language detection: {e}")
+            return None
 
     async def _refine_metadata_from_text(self, metadata: Dict[str, Any], text: str) -> Dict[str, Any]:
         """Try to extract missing metadata fields from the text."""
-        if not text: return metadata
+        if not text:
+            return metadata
 
-        text_snippet = text[:min(len(text), 5000)] # Check beginning of text
+        text_snippet = text[:min(len(text), 5000)]  # Check beginning of text
 
         # Extract DOI if missing
         if not metadata.get("doi"):
@@ -353,11 +433,11 @@ class PDFProcessor:
 
         # Extract Year if missing
         if not metadata.get("year"):
-             year_context_match = re.search(r'(?:published|received|accepted|©|\copyright|\()\s*((?:19|20)\d{2})\b', text_snippet, re.IGNORECASE)
-             if year_context_match:
-                  metadata["year"] = year_context_match.group(1)
-                  logger.info(f"Refined Year from text context: {metadata['year']}")
-             else: # Fallback: Find standalone year near top
+            year_context_match = re.search(r'(?:published|received|accepted|©|\copyright|\()\s*((?:19|20)\d{2})\b', text_snippet, re.IGNORECASE)
+            if year_context_match:
+                metadata["year"] = year_context_match.group(1)
+                logger.info(f"Refined Year from text context: {metadata['year']}")
+            else:  # Fallback: Find standalone year near top
                 year_match = re.search(r'\b((?:19|20)\d{2})\b', text_snippet[:1000])
                 if year_match:
                     metadata["year"] = year_match.group(1)
@@ -367,25 +447,30 @@ class PDFProcessor:
         # This is less reliable and can be improved with LLM extraction if needed.
         if not metadata.get("journal") or not metadata.get("volume"):
             pub_match = re.search(
-                r'([A-Za-z\s&]{5,})' # Journal Name (at least 5 chars)
-                r'(?:[,\.]|\s+)' # Separator
-                r'(?:Vol\.?|Volume)?\s*(\d+)' # Volume (required for this match)
-                r'(?:(?:,\s*|\s+)\(?No\.?|Issue\)?\s*(\d+|\w+))?' # Optional Issue
-                r'(?:(?:,\s*|\s+)\(?(?:(?:pp|pages)\.?\s*)?([\d\-–]+)\)?)?' # Optional Pages
-                r'(?:(?:,\s*|\s+)\(?((?:19|20)\d{2})\)?)?' # Optional Year
+                r'([A-Za-z\s&]{5,})'  # Journal Name (at least 5 chars)
+                r'(?:[,\.]|\s+)'  # Separator
+                r'(?:Vol\.?|Volume)?\s*(\d+)'  # Volume (required for this match)
+                r'(?:(?:,\s*|\s+)\(?No\.?|Issue\)?\s*(\d+|\w+))?'  # Optional Issue
+                r'(?:(?:,\s*|\s+)\(?(?:(?:pp|pages)\.?\s*)?([\d\-–]+)\)?)?'  # Optional Pages
+                r'(?:(?:,\s*|\s+)\(?((?:19|20)\d{2})\)?)?'  # Optional Year
                 , text_snippet, re.IGNORECASE | re.MULTILINE)
 
             if pub_match:
-                if not metadata.get("journal"): metadata["journal"] = pub_match.group(1).strip()
-                if not metadata.get("volume"): metadata["volume"] = pub_match.group(2).strip()
-                if pub_match.group(3) and not metadata.get("issue"): metadata["issue"] = pub_match.group(3).strip()
-                if pub_match.group(4) and not metadata.get("pages"): metadata["pages"] = pub_match.group(4).strip()
-                if pub_match.group(5) and not metadata.get("year"): metadata["year"] = pub_match.group(5).strip()
+                if not metadata.get("journal"):
+                    metadata["journal"] = pub_match.group(1).strip()
+                if not metadata.get("volume"):
+                    metadata["volume"] = pub_match.group(2).strip()
+                if pub_match.group(3) and not metadata.get("issue"):
+                    metadata["issue"] = pub_match.group(3).strip()
+                if pub_match.group(4) and not metadata.get("pages"):
+                    metadata["pages"] = pub_match.group(4).strip()
+                if pub_match.group(5) and not metadata.get("year"):
+                    metadata["year"] = pub_match.group(5).strip()
                 logger.info(f"Attempted refinement of Pub Info from text: J='{metadata.get('journal')}', V='{metadata.get('volume')}'...")
 
         # Update publication date if only year is present
         if metadata.get("year") and not metadata.get("publicationDate"):
-             metadata["publicationDate"] = metadata["year"]
+            metadata["publicationDate"] = metadata["year"]
 
         return metadata
 
@@ -410,9 +495,9 @@ class PDFProcessor:
         }
         # Map found keys to standard keys
         key_map = {
-            "related_work": "methodology", # Often part of methodology/intro context
-            "acknowledgements": "conclusion", # Context often near conclusion
-            "appendix": "references" # Context often after references
+            "related_work": "methodology",  # Often part of methodology/intro context
+            "acknowledgements": "conclusion",  # Context often near conclusion
+            "appendix": "references"  # Context often after references
         }
 
         lines = markdown_text.splitlines()
@@ -457,11 +542,11 @@ class PDFProcessor:
         logger.info(f"Attempting LLM inference for sections: {sections_to_infer}")
         try:
             # Limit text sent to LLM
-            text_limit = 25000 # Adjust token limit as needed
+            text_limit = 25000  # Adjust token limit as needed
             if len(text) > text_limit:
-                 text_snippet = text[:text_limit // 2] + "\n...\n" + text[-text_limit // 2:]
+                text_snippet = text[:text_limit // 2] + "\n...\n" + text[-text_limit // 2:]
             else:
-                 text_snippet = text
+                text_snippet = text
 
             section_prompt = f"""
 Analyze the following scientific paper text and extract the content for ONLY the following sections: {', '.join(sections_to_infer)}.
