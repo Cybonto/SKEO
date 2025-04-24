@@ -176,3 +176,7 @@ cython_debug/
 .DS_Store
 .skeo*
 .venv*
+AI-Safety_Privacy
+sample_pdfs
+test
+outputs

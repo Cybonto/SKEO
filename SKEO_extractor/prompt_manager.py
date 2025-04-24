@@ -75,17 +75,18 @@ class PromptManager:
         prompt_template = self.prompts[component_name]
 
         # Select relevant text sections based on component
+        misc = extracted_text.get('sections', {}).get('misc', '')
         title = extracted_text.get('metadata', {}).get('title', 'N/A')
-        abstract = extracted_text.get('sections', {}).get('abstract', '')
-        introduction = extracted_text.get('sections', {}).get('introduction', '')
-        methodology = extracted_text.get('sections', {}).get('methodology', '')
-        results = extracted_text.get('sections', {}).get('results', '')
-        discussion = extracted_text.get('sections', {}).get('discussion', '')
-        conclusion = extracted_text.get('sections', {}).get('conclusion', '')
+        abstract = extracted_text.get('sections', {}).get('abstract', '') or misc
+        introduction = extracted_text.get('sections', {}).get('introduction', '') or misc
+        methodology = extracted_text.get('sections', {}).get('methodology', '') or misc
+        results = extracted_text.get('sections', {}).get('results', '') or misc
+        discussion = extracted_text.get('sections', {}).get('discussion', '') or misc
+        conclusion = extracted_text.get('sections', {}).get('conclusion', '') or misc
         # full_text = extracted_text.get('full_text', '') # Use sparingly
 
         # Limit section lengths to avoid excessive prompt size
-        max_section_len = 10000 # Max chars per section included in prompt context
+        max_section_len = 40000 # Max chars per section included in prompt context
 
         text_context = f"Title: {title}\n\n"
 
@@ -102,12 +103,16 @@ class PromptManager:
              text_context += f"Abstract:\n{abstract[:max_section_len]}\n\nIntroduction:\n{introduction[:max_section_len]}\n\nMethodology:\n{methodology[:max_section_len]}\n\nResults:\n{results[:max_section_len]}" # Include results for context
         elif component_name == "material_tool":
              text_context += f"Methodology:\n{methodology[:max_section_len]}\n\nResults:\n{results[:max_section_len]}" # Often detailed in methods/results
+        elif component_name == "data_analysis":
+            text_context += f"Methodology:\n{methodology[:max_section_len]}\n\nResults:\n{results[:max_section_len]}"
+        elif component_name == "results_representation":
+            text_context += f"Results:\n{results[:max_section_len]}\n\nDiscussion:\n{discussion[:max_section_len]}\n\nConclusion:\n{conclusion[:max_section_len]}"
         else:
             logger.warning(f"Using default text sections (Abstract, Intro, Conclusion) for unrecognized component: {component_name}")
             text_context += f"Abstract:\n{abstract[:max_section_len]}\n\nIntroduction:\n{introduction[:max_section_len]}\n\nConclusion:\n{conclusion[:max_section_len]}"
 
         # Ensure context is not excessively long overall
-        max_total_context = 30000
+        max_total_context = 70000
         if len(text_context) > max_total_context:
             logger.warning(f"Truncating text context for {component_name} prompt.")
             text_context = text_context[:max_total_context] + "\n... [Context Truncated]"

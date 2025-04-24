@@ -201,12 +201,14 @@ class DataAnalysis(BaseModel):
     parameterSettings: Optional[str] = None
     dataPreprocessingSteps: Optional[str] = None
     analysisDetails: Optional[str] = None
+    summary: Optional[str] = None 
 
 class ResultsRepresentation(BaseModel):
     representationFormat: Optional[str] = None
     visualizationType: Optional[str] = None
     reportingStandard: Optional[str] = None
     primaryOutcomeMeasure: Optional[str] = None
+    summary: Optional[str] = None
 
 class ValidationVerification(BaseModel):
     validationTypes: Optional[List[str]] = []

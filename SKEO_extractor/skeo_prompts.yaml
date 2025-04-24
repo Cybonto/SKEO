@@ -1,4 +1,3 @@
-
 # SKEO extraction prompt templates
 # Each template will be formatted with the text from the paper
 
@@ -304,28 +303,28 @@ methodological_framework:
   ```json
   {{
     "name": "Name or identifier for the methodological framework",
-    "description": "General description of the methodological approach",
+    "description": "Provide a comprehensive and detailed description of the methodological approach used in the study, covering all relevant aspects.",
     "studyDesign": {{
       "designType": "Overall research design (choose from: Experimental, QuasiExperimental, RCT, Observational, CohortStudy, CaseControlStudy, CrossSectionalStudy, LongitudinalStudy, Survey, CaseStudy, Ethnography, GroundedTheory, Simulation, MetaAnalysis, MixedMethods, Other)",
       "controlGroup": true or false,
       "randomization": true or false,
       "blinding": "Type of blinding (choose from: None, SingleBlind, DoubleBlind, TripleBlind, NotSpecified)",
       "timeDimension": "Temporal aspect (choose from: CrossSectional, Longitudinal, Retrospective, Prospective, NotSpecified)",
-      "designDetails": "Additional design details"
+      "designDetails": "Provide a detailed description of additional design details, including rationale for design choices and any unique features."
     }},
     "populationAndSampling": {{
-      "targetPopulation": "Description of the population of interest",
+      "targetPopulation": "Provide a detailed description of the population of interest, including key characteristics.",
       "sampleSize": 123,
       "samplingMethod": "Method used for sampling (choose from: Random, Stratified, Cluster, Systematic, Convenience, Purposive, Snowball, Quota, TotalPopulation, Other, NotSpecified)",
-      "inclusionCriteria": "Criteria for including participants/units",
-      "exclusionCriteria": "Criteria for excluding participants/units"
+      "inclusionCriteria": "Provide detailed criteria for including participants or units in the study.",
+      "exclusionCriteria": "Provide detailed criteria for excluding participants or units from the study."
     }},
     "variables": [
       {{
         "variableName": "Name of variable",
         "variableRole": "Role in the study (choose from: Independent, Dependent, Mediator, Moderator, Control, Confounder, Covariate, Outcome, Other)",
-        "conceptualDefinition": "Theoretical definition",
-        "operationalization": "How the variable was measured or manipulated",
+        "conceptualDefinition": "Provide a detailed theoretical definition of the variable, including any relevant background.",
+        "operationalization": "Provide a detailed explanation of how the variable was measured or manipulated in the study.",
         "measurementScale": "Scale type (choose from: Nominal, Ordinal, Interval, Ratio, Categorical, Continuous, Other)",
         "units": "Unit of measurement"
       }}
@@ -335,18 +334,18 @@ methodological_framework:
         "itemName": "Name of material or tool",
         "itemType": "Type (choose from: Equipment, Software, Dataset, Reagent, BiologicalSampleType, Questionnaire, Ontology, Database, Protocol, Algorithm, Other)",
         "identifier": "Version, model number, or other identifier",
-        "specifications": "Key technical details",
-        "roleInProcedure": "How the item was used"
+        "specifications": "Provide detailed technical specifications of the item.",
+        "roleInProcedure": "Provide a detailed description of how the item was used within the procedures."
       }}
     ],
     "procedures": [
       {{
         "procedureName": "Name of procedure",
-        "procedureDescription": "Overall description of procedure",
+        "procedureDescription": "Provide a comprehensive description of the procedure, including objectives and overall approach.",
         "steps": [
           {{
             "stepNumber": 1,
-            "description": "Description of step",
+            "description": "Provide a detailed description of each step, including actions taken, methods used, and any important considerations.",
             "inputs": "Materials or data used",
             "outputs": "Materials or data produced",
             "parameters": {{"parameterName": "value"}}
@@ -356,37 +355,39 @@ methodological_framework:
     ],
     "dataCollection": {{
       "collectionMethod": "Method used (choose from: SurveyAdministration, Interview, Observation, SensorReading, ImageAcquisition, PhysiologicalMeasurement, DocumentAnalysis, ExperimentalManipulation, LogFileExtraction, WebScraping, Other)",
-      "instrumentDescription": "Description of instruments used",
-      "collectionSetting": "Where collection took place",
-      "collectionTimeframe": "When collection occurred",
+      "instrumentDescription": "Provide a detailed description of the instruments used for data collection, including their validation and reliability if applicable.",
+      "collectionSetting": "Provide a detailed description of where collection took place and under what conditions.",
+      "collectionTimeframe": "Provide detailed information on when and over what period data collection occurred.",
       "dataRecordingFormat": "Format of raw data"
     }},
     "dataAnalysis": {{
+      "summary": "Provide a comprehensive and detailed summary of the data analysis approaches used, including the rationale for choosing these methods, and how they were applied to the data. The summary should be several paragraphs long, covering all relevant aspects.",
       "analysisApproach": "Overall approach (choose from: StatisticalAnalysis, MachineLearning, QualitativeContentAnalysis, ThematicAnalysis, SimulationAnalysis, MathematicalModeling, NetworkAnalysis, MetaAnalysis, MixedMethodsAnalysis, Other)",
-      "statisticalTests": "Statistical tests used",
-      "algorithmsUsed": "Algorithms or computational methods",
+      "statisticalTests": "Provide detailed information on the statistical tests used, including assumptions checked and any adjustments made.",
+      "algorithmsUsed": "Provide detailed descriptions of algorithms or computational methods used.",
       "softwareDetails": "Software packages and versions",
-      "parameterSettings": "Key parameters for algorithms or tests",
-      "dataPreprocessingSteps": "Data cleaning or transformation steps"
+      "parameterSettings": "Provide detailed information on key parameters for algorithms or tests used in the analysis.",
+      "dataPreprocessingSteps": "Provide detailed descriptions of data cleaning or transformation steps performed."
     }},
     "resultsRepresentation": {{
+      "summary": "Provide a comprehensive and detailed summary of all significant findings and their implications, including quantitative results, effect sizes, and confidence intervals where applicable. The summary should be several paragraphs long.",
       "representationFormat": "Format used (choose from: TabularData, StatisticalSummary, Graph, Image, TextualDescription, MathematicalEquation, ModelOutputFile, Multiple, Other)",
       "visualizationType": "Type of visualization if applicable",
       "reportingStandard": "Reporting guidelines followed"
     }},
     "validationAndVerification": {{
       "validationTypes": ["Type of validation used"],
-      "validationProcedure": "Description of validation steps",
-      "validationMetrics": "Metrics used to assess validation",
-      "validationResults": "Outcomes of validation",
+      "validationProcedure": "Provide a detailed description of the validation steps and procedures undertaken.",
+      "validationMetrics": "Provide detailed information on the metrics used to assess validation.",
+      "validationResults": "Provide detailed outcomes of validation, including any quantitative results.",
       "industryStandards": "Industry standards or regulatory frameworks followed"
     }},
     "ethicalConsiderations": {{
       "ethicsApprovalBody": "Body that provided approval",
       "approvalIdentifier": "Protocol or approval number",
-      "informedConsentProcedure": "How consent was obtained",
+      "informedConsentProcedure": "Provide a detailed description of how informed consent was obtained.",
       "dataAnonymization": true or false,
-      "privacyMeasures": "Steps to protect privacy"
+      "privacyMeasures": "Provide detailed steps taken to protect privacy and confidentiality."
     }},
     "reproducibilityAndSharing": {{
       "dataAvailabilityStatement": "Statement about data availability",
@@ -398,6 +399,7 @@ methodological_framework:
     }},
     "extractionConfidence": 0.7 // Your confidence in this extraction on a scale of 0 to 1
   }}
-  ```
+  
+  Please ensure that all fields that relate to 'description' or 'detail' provide thorough and detailed explanations, not just brief sentences. Focus on capturing as much relevant information as possible from the paper in these fields.
   
   Focus on the key methodological aspects most relevant to this particular paper - not all fields need to be filled if that information isn't present. If certain sections are not applicable to this type of research, leave them as null or empty structures. If you're uncertain about any field, make your best guess and adjust the confidence score accordingly.

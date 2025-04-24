@@ -2,11 +2,11 @@
 llm:
   api_endpoint: https://api.openai.com # Base URL for the LLM API
   #api_key: your_openai_api_key_here  # Overrides LLM_API_KEY env var
-  model: o1-mini  # LLM model identifier
+  model: o3-mini  # LLM model identifier
   api_base_path: /v1 # Base path for API calls (e.g., /v1 for OpenAI)
   chat_endpoint: /chat/completions # Specific endpoint for chat completions
   # health_endpoint: /health # Optional: Health check endpoint if available
-  max_tokens: 4096 # Max tokens for LLM response
+  max_tokens: 10096 # Max tokens for LLM response
   temperature: 0.2 # LLM sampling temperature
   retry_attempts: 3 # Number of retries for LLM API calls
   timeout_seconds: 120 # Timeout for LLM API calls
@@ -16,7 +16,7 @@ llm:
 pdf:
   extract_method: docling  # Options: docling, pymupdf
   search_metadata: true  # Whether to search for metadata online using SerpApi
-  max_text_length: 150000 # Max characters of full text to keep
+  max_text_length: 100000 # Max characters of full text to keep
   language_detection: true # Enable language detection
 
 # Metadata Services (SerpApi for Google Scholar)
@@ -43,8 +43,8 @@ extraction:
 
 # Processing Settings
 processing:
-  concurrency_limit: 4 # Max number of PDFs to process concurrently
-  batch_size: 10 # Used for logging purposes
+  concurrency_limit: 1 # Max number of PDFs to process concurrently
+  batch_size: 1 # Used for logging purposes
   fail_fast: false  # If true, stops on the first PDF processing error
   skip_existing: true  # If true, skips generating JSON if output file exists
 

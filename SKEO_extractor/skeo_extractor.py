@@ -9,6 +9,7 @@ import aiofiles
 import re # Added for filename sanitization
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Union
+from pathlib import Path # Import Path for better path handling
 
 from pydantic import ValidationError
 
@@ -28,8 +29,9 @@ class SKEOExtractor:
 
     def __init__(self, prompt_file: str, output_dir: str, params: Optional[Dict] = None):
         self.params = params if params else load_params() # Load defaults if not provided
-        self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
+        # output_dir is now the BASE output directory, individual files determined by caller
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True) # Ensure base dir exists
 
         # Initialize clients using loaded params
         self.llm_client = LLMClient(self.params)
@@ -80,23 +82,32 @@ class SKEOExtractor:
         """Generate a unique string ID (UUID)."""
         return uuid.uuid4().hex
 
-    async def process_pdf(self, pdf_path: str) -> Tuple[str, Union[Dict[str, Any], Exception]]:
+    # --- MODIFIED process_pdf SIGNATURE ---
+    async def process_pdf(self, pdf_path: Union[str, Path], output_json_path: Union[str, Path]) -> Tuple[str, Union[Dict[str, Any], Exception]]:
         """
         Process a single PDF: extract text/metadata, extract components, link, save/upload.
 
+        Args:
+            pdf_path: Path to the input PDF file.
+            output_json_path: The exact path where the output JSON should be saved.
+
         Returns:
-            Tuple(pdf_path, result_dict_by_slug or Exception)
+            Tuple(original_pdf_path_string, result_dict_by_slug or Exception)
         """
-        logger.info(f"Starting processing for PDF: {os.path.basename(pdf_path)}")
+        # Ensure paths are Path objects internally
+        pdf_path = Path(pdf_path)
+        output_json_path = Path(output_json_path)
+        pdf_display_name = pdf_path.name # For logging
+
+        logger.info(f"Starting processing for PDF: {pdf_display_name}")
+        logger.info(f"Target output path: {output_json_path}")
         paper_uuid = self._generate_id() # Generate ID for this paper early
 
         try:
             # --- Step 1: Extract Text and Metadata ---
-            # PDFProcessor now returns None on failure
             extracted_text_data = await self.pdf_processor.extract_text_from_pdf(pdf_path)
             if not extracted_text_data or not extracted_text_data.get('metadata'):
-                 # Log specific reason if possible (e.g., PDF open failed, text extraction failed)
-                 raise ValueError(f"PDF processing failed to return essential data for {os.path.basename(pdf_path)}.")
+                 raise ValueError(f"PDF processing failed to return essential data for {pdf_display_name}.")
 
             # --- Step 2: Prepare Base Paper Object using ScientificPaper model ---
             paper_metadata = extracted_text_data['metadata']
@@ -111,26 +122,25 @@ class SKEOExtractor:
                 "issue": paper_metadata.get("issue"),
                 "pages": paper_metadata.get("pages"),
                 "keywords": paper_metadata.get("keywords", []),
-                "pdfPath": pdf_path, # Store the path processed
+                "pdfPath": str(pdf_path), # Store the path processed as string
                 "fileUrl": paper_metadata.get("fileUrl", paper_metadata.get("pdfPath")), # Link from metadata search
                 "extractionDate": datetime.now().isoformat(),
                 "extractionConfidenceScore": 0.0, # Placeholder
                 "id": paper_uuid # Internal UUID
             }
-            # Validate and create the paper object
             try:
                 paper_object = skeo_models.ScientificPaper.model_validate(paper_data)
-                # Use model_dump for Pydantic v2
                 paper_dict = paper_object.model_dump(exclude_unset=True, mode='json')
             except ValidationError as ve:
-                 logger.error(f"Failed to validate initial paper data for {os.path.basename(pdf_path)}: {ve}")
-                 # Decide how to handle: raise error, proceed with raw dict, etc.
-                 # For now, proceed with the raw dict but log error.
-                 paper_dict = paper_data # Use raw data if validation fails
+                 logger.error(f"Failed to validate initial paper data for {pdf_display_name}: {ve}")
+                 paper_dict = paper_data
             except AttributeError: # Fallback for Pydantic v1
-                 paper_object = skeo_models.ScientificPaper(**paper_data)
-                 paper_dict = paper_object.dict(exclude_unset=True)
-
+                 try:
+                     paper_object = skeo_models.ScientificPaper(**paper_data)
+                     paper_dict = paper_object.dict(exclude_unset=True)
+                 except ValidationError as ve_v1:
+                      logger.error(f"Failed to validate initial paper data (v1) for {pdf_display_name}: {ve_v1}")
+                      paper_dict = paper_data
 
             # --- Step 3: Extract SKEO Components Concurrently ---
             component_tasks = []
@@ -146,44 +156,46 @@ class SKEOExtractor:
             component_results = await asyncio.gather(*component_tasks)
 
             # --- Step 4: Aggregate Results and Calculate Confidence ---
-            # Use Strapi slugs as keys if available, otherwise internal keys
             slug_map = self.params.get('strapi', {}).get('api_slugs', {})
             paper_slug = slug_map.get("scientific_paper", "scientific_paper")
 
-            # Store all extracted data keyed by Strapi slug
-            aggregated_data_by_slug = {paper_slug: [paper_dict]} # Store paper as list
+            aggregated_data_by_slug = {paper_slug: [paper_dict]}
             component_confidences = []
 
             for component_key, result_list in component_results:
                 if result_list is not None: # Check if extraction was successful (returned list, maybe empty)
                     strapi_key = slug_map.get(component_key, component_key)
                     aggregated_data_by_slug[strapi_key] = result_list
-                    # Collect confidences from successfully extracted items
                     for item in result_list:
                         if isinstance(item, dict):
                             component_confidences.append(item.get("extractionConfidence", 0.0))
 
-            # Calculate average confidence for the paper
             if component_confidences:
                 avg_confidence = round(sum(component_confidences) / len(component_confidences), 4)
-                aggregated_data_by_slug[paper_slug][0]["extractionConfidenceScore"] = avg_confidence
+                # Check if paper_slug exists and has at least one item before accessing
+                if paper_slug in aggregated_data_by_slug and aggregated_data_by_slug[paper_slug]:
+                    aggregated_data_by_slug[paper_slug][0]["extractionConfidenceScore"] = avg_confidence
+                else:
+                    logger.warning(f"Could not assign average confidence for {pdf_display_name}: Paper data missing or empty.")
 
 
             # --- Step 5: Add Relationships (Simplified) ---
-            # Modifies aggregated_data_by_slug in place
             await self._add_relationships(aggregated_data_by_slug)
 
             # --- Step 6: Save/Upload Result ---
-            # Pass data keyed by Strapi slugs
-            await self._save_and_upload_result(aggregated_data_by_slug, pdf_path)
+            # --- MODIFIED CALL to pass output_json_path ---
+            await self._save_and_upload_result(aggregated_data_by_slug, pdf_path, output_json_path)
 
-            logger.info(f"Successfully finished processing PDF: {os.path.basename(pdf_path)}")
-            return (pdf_path, aggregated_data_by_slug)
+            logger.info(f"Successfully finished processing PDF: {pdf_display_name}")
+            # --- Return original path as string ---
+            return (str(pdf_path), aggregated_data_by_slug)
 
         except Exception as e:
-            logger.error(f"Failed processing PDF {os.path.basename(pdf_path)}: {str(e)}", exc_info=True)
-            return (pdf_path, e) # Return exception for handling in main loop
+            logger.error(f"Failed processing PDF {pdf_display_name}: {str(e)}", exc_info=True)
+            # --- Return original path as string ---
+            return (str(pdf_path), e) # Return exception for handling in main loop
 
+    # --- _extract_single_component remains the same ---
     async def _extract_single_component(self, component_key: str, extracted_text: Dict[str, Any], paper_id: str) -> Tuple[str, Optional[List[Dict]]]:
         """Extracts data for a single SKEO component. Returns list or None on failure."""
         logger.info(f"Extracting component: {component_key}")
@@ -247,6 +259,35 @@ class SKEOExtractor:
             # Indicate failure for this component, but don't stop overall process
             return (component_key, None) # Returning None signals an extraction *error* for this component
 
+    # --- extract_component remains the same (potentially deprecated by _extract_single_component) ---
+    async def extract_component(self, component_name: str, extracted_text: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        prompt = self.prompt_manager.get_prompt(component_name, extracted_text)
+        logger.info(f"Extracting {component_name} using LLM.")
+        try:
+            extraction_result = await self.llm_client.extract_json(prompt)
+            if extraction_result:
+                logger.debug(f"{component_name} extraction result: {extraction_result}")
+                return extraction_result
+            else:
+                logger.warning(f"LLM extraction for {component_name} returned no data.")
+                return None
+        except Exception as e:
+            logger.error(f"Error extracting {component_name}: {str(e)}", exc_info=True)
+            return None
+
+    # --- extract_all_components remains the same (potentially deprecated by process_pdf loop) ---
+    async def extract_all_components(self, extracted_text: Dict[str, Any]) -> Dict[str, Any]:
+        extracted_components = {}
+        tasks = []
+        for component_name in self.extract_components:
+            tasks.append(self.extract_component(component_name, extracted_text))
+        results = await asyncio.gather(*tasks)
+        for component_name, component_result in zip(self.extract_components, results):
+            if component_result:
+                extracted_components[component_name] = component_result
+        return extracted_components
+
+    # --- _add_relationships remains the same ---
     async def _add_relationships(self, extracted_data_by_slug: Dict[str, List[Dict]]) -> None:
         """
         Add relationships between extracted entities based on simplified logic.
@@ -318,7 +359,9 @@ class SKEOExtractor:
                 # Link Materials/Tools used in the first framework (example)
                 for mt in material_tools:
                      if "usedInFrameworks" not in mt: mt["usedInFrameworks"] = []
-                     mt["usedInFrameworks"].append(first_framework_id)
+                     # Avoid duplicates if run multiple times (though shouldn't happen in normal flow)
+                     if first_framework_id not in mt["usedInFrameworks"]:
+                         mt["usedInFrameworks"].append(first_framework_id)
 
             if first_limitation_id:
                  for mc in method_challenges: mc["resultsInLimitation"] = first_limitation_id
@@ -336,47 +379,58 @@ class SKEOExtractor:
                 for pa in potential_apps:
                      pa["buildOnMethodologicalFrameworks"] = all_framework_ids
 
-            # Link all Material/Tools to the first framework (as done above)
-            # Or potentially link based on keywords in description (more complex)
-
             logger.debug("Finished adding simplified relationships.")
 
         except Exception as e:
             logger.error(f"Error adding relationships: {e}", exc_info=True)
 
 
-    async def _save_and_upload_result(self, result_data_by_slug: Dict[str, List[Dict]], pdf_path: str) -> None:
-        """Save extraction result locally and upload to Strapi if configured."""
-        pdf_filename_base = os.path.splitext(os.path.basename(pdf_path))[0]
-        safe_filename_base = re.sub(r'[^\w\-.]+', '_', pdf_filename_base) # Allow dots
-        json_filename = os.path.join(self.output_dir, f"{safe_filename_base}_extraction.json")
+    # --- MODIFIED _save_and_upload_result SIGNATURE and LOGIC ---
+    async def _save_and_upload_result(self, result_data_by_slug: Dict[str, List[Dict]], pdf_path: Union[str, Path], output_json_path: Union[str, Path]) -> None:
+        """
+        Save extraction result locally to the specified path and upload to Strapi if configured.
+
+        Args:
+            result_data_by_slug: The extracted data keyed by Strapi slugs.
+            pdf_path: The original path of the PDF (used for logging).
+            output_json_path: The exact path where the JSON file should be saved.
+        """
+        # Ensure paths are Path objects
+        pdf_path = Path(pdf_path)
+        output_path = Path(output_json_path)
+        pdf_display_name = pdf_path.name # For logging
 
         try:
             # Prepare data for Strapi upload format (removes internal 'id', formats relations)
-            # This step is crucial for the StrapiClient to work correctly.
             data_to_process = self._prepare_data_for_strapi_upload(result_data_by_slug)
 
+            # --- Create Output Directory ---
+            try:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"Ensured output directory exists: {output_path.parent}")
+            except OSError as e:
+                 logger.error(f"Failed to create output directory {output_path.parent} for {pdf_display_name}: {e}")
+                 raise # Re-raise directory creation error
+
             # Save locally using aiofiles
-            async with aiofiles.open(json_filename, 'w', encoding='utf-8') as afp:
-                # Use dumps for async writing; ensure_ascii=False for broader character support
+            async with aiofiles.open(output_path, 'w', encoding='utf-8') as afp:
                 await afp.write(json.dumps(data_to_process, indent=2, ensure_ascii=False))
-            logger.info(f"Saved extraction result locally to {json_filename}")
+            logger.info(f"Saved extraction result locally to {output_path}") # Use the exact output path
 
             # Upload to Strapi if client is initialized
             if self.strapi_client:
-                logger.info(f"Attempting direct upload to Strapi for {os.path.basename(pdf_path)}...")
+                logger.info(f"Attempting direct upload to Strapi for {pdf_display_name}...")
                 try:
-                    # Pass the data keyed by Strapi slugs, already prepared
                     upload_summary = await self.strapi_client.upload_data(data_to_process)
-                    # StrapiClient logs its own summary now
+                    # StrapiClient should log its own summary
                 except Exception as e:
-                    # Catch potential errors during the upload process itself
-                    logger.error(f"Strapi upload failed for {os.path.basename(pdf_path)}: {str(e)}", exc_info=True)
+                    logger.error(f"Strapi upload failed for {pdf_display_name}: {str(e)}", exc_info=True)
 
         except Exception as e:
-            logger.error(f"Failed to save or upload extraction result for {os.path.basename(pdf_path)}: {str(e)}", exc_info=True)
+            logger.error(f"Failed to save or upload extraction result for {pdf_display_name}: {str(e)}", exc_info=True)
 
 
+    # --- _prepare_data_for_strapi_upload remains the same ---
     def _prepare_data_for_strapi_upload(self, result_data: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
         """
         Formats the final extracted data (keyed by Strapi slug) for Strapi upload.
@@ -400,6 +454,7 @@ class SKEOExtractor:
             prepared_upload_data[strapi_slug] = prepared_list
         return prepared_upload_data
 
+    # --- _format_entity_for_upload remains the same ---
     def _format_entity_for_upload(self, entity_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Recursively formats a single entity and its nested components for Strapi upload.
