@@ -83,7 +83,7 @@ async def main():
                         help="Override processing.skip_existing param (e.g., --skip-existing / --no-skip-existing).")
     parser.add_argument("--fail-fast", action=argparse.BooleanOptionalAction, default=None,
                         help="Override processing.fail_fast param.")
-    parser.add_argument("--max-workers", type=int, default=None,
+    parser.add_argument("--max-workers", type=int, default=1,
                         help="Override processing.max_workers param for concurrency limit.")
 
     args = parser.parse_args()
@@ -242,7 +242,7 @@ async def main():
     # --- Process PDFs Concurrently using asyncio ---
     processing_params = params.get("processing", {})
     fail_fast = processing_params.get("fail_fast", False)
-    concurrency_limit = processing_params.get("max_workers", 4)
+    concurrency_limit = processing_params.get("max_workers", 1)
     semaphore = asyncio.Semaphore(concurrency_limit)
     logger.info(f"Processing PDFs with concurrency limit: {concurrency_limit}")
 
