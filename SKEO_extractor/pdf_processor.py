@@ -75,7 +75,7 @@ class PDFProcessor:
 
     async def extract_text_from_pdf(self, pdf_path: str) -> Optional[Dict[str, Any]]:
         """
-        Extract structured text and metadata from a PDF file.
+        Extract structured text and metadata from a PDF file. Opens fitz.Document lazily.
 
         Args:
             pdf_path (str): Path to the PDF file.
@@ -84,33 +84,31 @@ class PDFProcessor:
             Dict containing 'metadata', 'full_text', 'sections', 'language', or None if extraction fails.
         """
         logger.info(f"Processing PDF: {pdf_path}")
-        doc = None  # PyMuPDF doc object
         first_page_markdown_for_validation = None # Store markdown from title extraction run
         title_for_search = None
+        basic_metadata = {"title": "", "authors_str": "", "subject": "", "keywords_str": "", "doi": ""}
+        first_author_for_search = None
+
         try:
-            # --- Open the PDF Document with PyMuPDF (still needed for fallback/metadata) ---
+            # --- Step 0: Initial Basic Metadata Extraction (if possible without full open) ---
+            # Try to get metadata without fully opening if PyMuPDF allows, otherwise open briefly.
+            # For simplicity here, we'll open briefly just for metadata initially, then close.
+            # This is still better than keeping it open throughout.
             try:
-                doc = fitz.open(pdf_path)
-            except Exception as fitz_err:
-                logger.error(f"Error opening PDF with PyMuPDF for {pdf_path}: {fitz_err}")
-                return None
+                with fitz.open(pdf_path) as temp_doc:
+                    pdf_metadata_raw = temp_doc.metadata or {}
+                    basic_metadata["title"] = pdf_metadata_raw.get("title", "")
+                    basic_metadata["authors_str"] = pdf_metadata_raw.get("author", "")
+                    basic_metadata["subject"] = pdf_metadata_raw.get("subject", "")
+                    basic_metadata["keywords_str"] = pdf_metadata_raw.get("keywords", "")
+                    cleaned_authors = [a.strip() for a in basic_metadata["authors_str"].split(',') if a.strip()]
+                    first_author_for_search = cleaned_authors[0] if cleaned_authors else None
+            except Exception as meta_err:
+                logger.warning(f"Could not open PDF briefly for basic metadata extraction: {meta_err}. Proceeding without it.")
+                # Basic metadata fields will remain empty
 
-            # --- Basic Metadata Extraction (PyMuPDF for initial info) ---
-            pdf_metadata_raw = doc.metadata or {}
-            basic_metadata = {
-                "title": pdf_metadata_raw.get("title", ""),
-                "authors_str": pdf_metadata_raw.get("author", ""),
-                "subject": pdf_metadata_raw.get("subject", ""),
-                "keywords_str": pdf_metadata_raw.get("keywords", ""),
-                "doi": ""
-            }
-            cleaned_authors = [a.strip() for a in basic_metadata["authors_str"].split(',') if a.strip()]
-            first_author_for_search = cleaned_authors[0] if cleaned_authors else None
-
-            # --- Attempt Title Extraction ---
-
-            # 1. Try extracting with Docling Header Method first (as it also gives markdown for validation)
-            #    We run this even if PyMuPDF metadata exists, to get the markdown text for validation.
+            # --- Step 1: Attempt Title Extraction ---
+            # 1. Try extracting with Docling Header Method first
             docling_title_candidate = None
             if DOCLING_AVAILABLE:
                 # This now returns (title_candidate, first_page_markdown) or (None, None)
@@ -118,200 +116,204 @@ class PDFProcessor:
                 if docling_title_candidate:
                     logger.info(f"Docling extracted title candidate: {docling_title_candidate}")
                     # Validate using the markdown text *from the same Docling run*
-                    if await self._is_title_in_text(title=docling_title_candidate, markdown_text=first_page_markdown_for_validation):
+                    # Pass pdf_path for potential fallback validation inside _is_title_in_text
+                    if await self._is_title_in_text(title=docling_title_candidate, pdf_path=pdf_path, markdown_text=first_page_markdown_for_validation):
                         title_for_search = docling_title_candidate
                         logger.info(f"Title confirmed from Docling header: {title_for_search}")
                     else:
-                        logger.warning("Title extracted from Docling header NOT found in its generated markdown text. Discarding Docling title.")
+                        logger.warning("Title extracted from Docling header NOT found/validated. Discarding Docling title.")
                 else:
                     logger.info("No title header extracted using Docling.")
 
-            # 2. If Docling didn't find a valid title, try PyMuPDF metadata
+            # 2. If Docling didn't find a valid title, try PyMuPDF metadata (extracted briefly above)
             if not title_for_search and basic_metadata["title"]:
                 extracted_title_meta = basic_metadata["title"].strip()
-                logger.info(f"Trying title from PyMuPDF metadata: {extracted_title_meta}")
-                # Validate using Docling's markdown if available, otherwise fallback to PyMuPDF text
-                if await self._is_title_in_text(title=extracted_title_meta, doc=doc, markdown_text=first_page_markdown_for_validation):
+                logger.info(f"Trying title from basic PDF metadata: {extracted_title_meta}")
+                # Validate using Docling's markdown if available, otherwise fallback to PyMuPDF text check (which opens the file)
+                if await self._is_title_in_text(title=extracted_title_meta, pdf_path=pdf_path, markdown_text=first_page_markdown_for_validation):
                     title_for_search = extracted_title_meta
-                    logger.info(f"Title confirmed from PyMuPDF metadata: {title_for_search}")
+                    logger.info(f"Title confirmed from basic PDF metadata: {title_for_search}")
                 else:
-                    logger.warning("Title from PyMuPDF metadata not found in document text (checked Docling markdown first, then PyMuPDF). Discarding metadata title.")
+                    logger.warning("Title from basic PDF metadata not found/validated. Discarding metadata title.")
             elif not title_for_search:
-                 logger.info("No title found in PyMuPDF metadata or Docling failed/discarded.")
+                 logger.info("No title found in basic PDF metadata or Docling failed/discarded.")
 
-
-            # 3. If title still not found, try guessing from filename (validate against PyMuPDF text as fallback)
+            # 3. If title still not found, try guessing from filename
             if not title_for_search:
                 filename_title = os.path.splitext(os.path.basename(pdf_path))[0].replace('_', ' ')
+                # Basic cleaning for filename titles
+                filename_title = re.sub(r'^\d+[-_]?\s*', '', filename_title) # Remove leading numbers/hyphens/underscores
+                filename_title = filename_title.strip()
                 logger.info(f"Trying title guessed from filename: {filename_title}")
-                # Use PyMuPDF doc for validation as the last resort if Docling failed
-                if await self._is_title_in_text(title=filename_title, doc=doc):
+                # _is_title_in_text will handle opening the PDF if markdown_text is None/failed
+                if await self._is_title_in_text(title=filename_title, pdf_path=pdf_path, markdown_text=first_page_markdown_for_validation):
                     title_for_search = filename_title
                     logger.info(f"Title confirmed from filename guess: {title_for_search}")
                 else:
-                    logger.warning("Title guessed from filename not found in PyMuPDF document text. Discarding.")
+                    logger.warning("Title guessed from filename not found/validated. Discarding.")
 
-            # --- Final Title Check ---
+            # --- Step 2: Final Title Check & Metadata Search ---
             if not title_for_search:
-                logger.error("Title could not be reliably extracted and validated from any method.")
-                title_for_search = None  # Explicitly set to None
+                logger.error(f"Title could not be reliably extracted and validated from any method for {pdf_path}.")
+                # Decide how to proceed: return None, or continue with a placeholder?
+                # Let's return None to indicate failure early.
+                return None
+            else:
+                 basic_metadata["title"] = title_for_search # Store the final validated title
 
-
-            # --- Use extracted title and author for further processing ---
-            basic_metadata["title"] = title_for_search # Store the final title
-
-            # --- Metadata Search (SerpApi) ---
+            # Metadata Search (SerpApi) - Only search if we have a title
             online_metadata = None
-            # Only search if we found a title
-            if self.search_metadata and title_for_search and self.metadata_fetcher:
+            if self.search_metadata and self.metadata_fetcher:
                 online_metadata = await self.metadata_fetcher.search_scholar_metadata(
                     title_for_search,
-                    first_author_for_search
+                    first_author_for_search # Use author from basic metadata extraction
                 )
 
-            # --- Consolidate Metadata ---
-            if title_for_search:
-                # Prioritize online metadata, fallback to basic metadata (which now holds the validated title)
-                final_metadata = {
-                    "title": (online_metadata or {}).get("title") or basic_metadata["title"],
-                    "authors": (online_metadata or {}).get("authors", []),
-                    "doi": (online_metadata or {}).get("doi") or basic_metadata["doi"],
-                    "journal": (online_metadata or {}).get("journal", ""),
-                    "publicationDate": (online_metadata or {}).get("publicationDate") or (online_metadata or {}).get("year"),
-                    "year": (online_metadata or {}).get("year", ""),
-                    "volume": (online_metadata or {}).get("volume", ""),
-                    "issue": (online_metadata or {}).get("issue", ""),
-                    "pages": (online_metadata or {}).get("pages", ""),
-                    "keywords": (online_metadata or {}).get("keywords", []),
-                    "abstract": (online_metadata or {}).get("abstract", ""),
-                    "fileUrl": (online_metadata or {}).get("fileUrl", ""),
-                    "pdfPath": (online_metadata or {}).get("pdfPath")
-                }
-            else:
-                # Use "manual input needed" values if title couldn't be found/validated
-                final_metadata = {
-                    "title": "Manual input needed",
-                    "authors": [], "doi": "", "journal": "", "publicationDate": "", "year": "",
-                    "volume": "", "issue": "", "pages": "", "keywords": [], "abstract": "",
-                    "fileUrl": "", "pdfPath": ""
-                }
+            # Consolidate Metadata
+            final_metadata = {
+                "title": (online_metadata or {}).get("title") or basic_metadata["title"],
+                "authors": (online_metadata or {}).get("authors", []),
+                "doi": (online_metadata or {}).get("doi") or basic_metadata["doi"],
+                "journal": (online_metadata or {}).get("journal", ""),
+                "publicationDate": (online_metadata or {}).get("publicationDate") or (online_metadata or {}).get("year"),
+                "year": (online_metadata or {}).get("year", ""),
+                "volume": (online_metadata or {}).get("volume", ""),
+                "issue": (online_metadata or {}).get("issue", ""),
+                "pages": (online_metadata or {}).get("pages", ""),
+                "keywords": (online_metadata or {}).get("keywords", []),
+                "abstract": (online_metadata or {}).get("abstract", ""),
+                "fileUrl": (online_metadata or {}).get("fileUrl", ""),
+                "pdfPath": (online_metadata or {}).get("pdfPath") # Path from online source, if any
+            }
 
             # Fill missing fields from basic_metadata if needed
             if not final_metadata["authors"] and basic_metadata["authors_str"]:
-                final_metadata["authors"] = [{"name": name} for name in cleaned_authors]
+                 cleaned_authors = [a.strip() for a in basic_metadata["authors_str"].split(',') if a.strip()]
+                 final_metadata["authors"] = [{"name": name} for name in cleaned_authors]
             if not final_metadata["keywords"] and basic_metadata["keywords_str"]:
                 final_metadata["keywords"] = [kw.strip() for kw in re.split(r'[;,]', basic_metadata["keywords_str"]) if kw.strip()]
 
-            # --- Text & Section Extraction ---
+            # --- Step 3: Text & Section Extraction ---
             extraction_result = None
             if self.extract_method == "docling":
                 extraction_result = await self._extract_with_docling(pdf_path, final_metadata)
-            # Ensure we always have a PyMuPDF doc object for the pymupdf method
-            elif doc:
-                extraction_result = await self._extract_with_pymupdf(doc, final_metadata)
+            elif self.extract_method == "pymupdf":
+                # Now, _extract_with_pymupdf needs to handle opening the document
+                extraction_result = await self._extract_with_pymupdf(pdf_path, final_metadata) # Pass pdf_path
             else:
-                # This case should theoretically not be reached due to earlier checks
-                logger.error(f"Cannot extract with PyMuPDF as document object is missing for {pdf_path}")
+                logger.error(f"Unsupported extraction method '{self.extract_method}' configured.")
                 return None
-
 
             if extraction_result is None:
                 logger.error(f"Text extraction failed for {pdf_path} using method '{self.extract_method}'")
                 return None
 
-            # --- Final Metadata Refinement from extracted text ---
-            # Use the text extracted by the chosen method (Docling markdown or PyMuPDF plain text)
+            # --- Step 4: Final Metadata Refinement from extracted text ---
             final_metadata = await self._refine_metadata_from_text(
                 extraction_result["metadata"], extraction_result["full_text"]
             )
             extraction_result["metadata"] = final_metadata  # Update metadata
 
-            # --- Logging Final Checks ---
-            if not final_metadata.get("doi"):
-                logger.info(f"DOI could not be finalized for {pdf_path}")
-            if not final_metadata.get("year"):
-                logger.info(f"Year could not be finalized for {pdf_path}")
-            # Check the finalized title
-            if not final_metadata.get("title") or final_metadata.get("title") == "Manual input needed":
-                logger.error(f"Title could not be finalized for {pdf_path}")
+            # Final Logging Checks
+            if not final_metadata.get("doi"): logger.info(f"DOI could not be finalized for {pdf_path}")
+            if not final_metadata.get("year"): logger.info(f"Year could not be finalized for {pdf_path}")
+            if not final_metadata.get("title") or final_metadata.get("title") == "Manual input needed": logger.error(f"Final Title is missing or placeholder for {pdf_path}")
+
 
             return extraction_result
 
         except Exception as e:
             logger.error(f"General error processing PDF {pdf_path}: {str(e)}", exc_info=True)
             return None
-        finally:
-            if doc:
-                try:
-                    doc.close()
-                except Exception as close_err:
-                    logger.warning(f"Error closing PDF {pdf_path}: {close_err}")
+        # No 'finally' block needed here to close 'doc', as it's managed within methods using 'with'
 
-    # --- MODIFIED SIGNATURE AND LOGIC ---
-    async def _is_title_in_text(self, title: str, doc: Optional[fitz.Document] = None, markdown_text: Optional[str] = None) -> bool:
+
+    async def _is_title_in_text(self, title: str, pdf_path: str, markdown_text: Optional[str] = None) -> bool:
         """
         Check if the extracted title appears in the document text.
         Prioritizes checking against provided markdown_text (from Docling).
-        Falls back to checking PyMuPDF document (doc) if markdown_text is None.
+        Falls back to checking PyMuPDF document text if markdown_text is None
+        or validation using markdown fails. Opens the PDF document only if needed.
+
+        Args:
+            title (str): The title string to validate.
+            pdf_path (str): The path to the PDF file (used for fallback check).
+            markdown_text (Optional[str]): Markdown text of the first page (or more)
+                                            extracted by Docling, if available.
+
+        Returns:
+            bool: True if the title is found in the text, False otherwise.
         """
         if not title:
+            logger.warning("Title validation skipped: No title provided.")
             return False
 
         title_lower = title.strip().lower()
         if not title_lower:
+            logger.warning("Title validation skipped: Title is empty after stripping.")
             return False
 
         # --- Priority 1: Check Docling Markdown Text ---
         if markdown_text:
+            logger.debug(f"Attempting title validation using provided markdown text for '{title}'.")
             try:
                 # Simple substring check on the markdown
                 if title_lower in markdown_text.lower():
                     logger.info(f"Validated title '{title}' found in Docling markdown.")
                     return True
                 else:
-                    logger.warning(f"Title candidate '{title}' NOT found in Docling markdown.")
-                    return False # If markdown provided, don't fallback to PyMuPDF here
+                    logger.warning(f"Title candidate '{title}' NOT found in provided Docling markdown. Falling back to PyMuPDF check.")
+                    # Fall through to PyMuPDF check
             except Exception as e:
-                logger.warning(f"Error checking title in markdown text: {e}")
-                # Fall through to PyMuPDF check if markdown check failed? Or return False?
-                # Let's return False to be strict: if markdown was provided, validation relies on it.
-                return False
+                logger.warning(f"Error checking title in markdown text: {e}. Falling back to PyMuPDF check.")
+                # Fall through to PyMuPDF check
 
-        # --- Priority 2: Check PyMuPDF Document Text (Fallback) ---
-        elif doc:
-            logger.debug(f"Validating title '{title}' using PyMuPDF document text (markdown not provided).")
-            try:
+        # --- Priority 2: Check PyMuPDF Document Text (Fallback or if no markdown provided) ---
+        logger.debug(f"Validating title '{title}' using PyMuPDF document text for path: {pdf_path}")
+        try:
+            # Open the document using 'with' statement only when needed for this check
+            with fitz.open(pdf_path) as doc:
                 # Check first page first
-                page = doc.load_page(0)
-                page_text = page.get_text("text", flags=fitz.TEXT_INHIBIT_SPACES) # Try inhibiting spaces
-                if title_lower in page_text.lower():
-                    logger.info(f"Validated title '{title}' found in PyMuPDF first page text.")
-                    return True
-
-                # Check full document text if not on first page
-                full_text = ""
-                for page_num in range(len(doc)):
-                    page = doc.load_page(page_num)
-                    # Consider flags like TEXT_INHIBIT_SPACES for potentially better matching
-                    full_text += page.get_text("text", flags=fitz.TEXT_INHIBIT_SPACES)
-                    # Optimization: check incrementally?
-                    # if len(full_text) > 5000 and title_lower in full_text.lower(): break # Check periodically
-
-                if title_lower in full_text.lower():
-                    logger.info(f"Validated title '{title}' found in PyMuPDF full document text.")
-                    return True
+                if len(doc) > 0:
+                    page = doc.load_page(0)
+                    # Try different text extraction flags for robustness
+                    flags_to_try = [
+                        fitz.TEXT_INHIBIT_SPACES, # Tries to remove extra spaces
+                        fitz.TEXT_PRESERVE_LIGATURES, # Default flags
+                        0 # No flags
+                    ]
+                    for flag in flags_to_try:
+                        try:
+                            page_text = page.get_text("text", flags=flag)
+                            if title_lower in page_text.lower():
+                                logger.info(f"Validated title '{title}' found in PyMuPDF first page text (flags={flag}).")
+                                return True
+                        except Exception as page_extract_err:
+                            logger.warning(f"Error extracting text from first page with flags={flag}: {page_extract_err}")
+                    logger.debug(f"Title '{title}' not found on first page with various flags.")
                 else:
-                    logger.warning(f"Title candidate '{title}' NOT found in PyMuPDF document text.")
+                    logger.warning(f"PDF {pdf_path} has no pages. Cannot validate title.")
                     return False
-            except Exception as e:
-                logger.warning(f"Error checking title in PyMuPDF text: {e}")
-                return False
-        else:
-            # Cannot validate if neither markdown nor doc is provided
-            logger.error(f"Cannot validate title '{title}': No markdown text or PyMuPDF document provided.")
-            return False
 
-    # --- MODIFIED LOGIC AND RETURN VALUE ---
+                # Optional: Check subsequent pages if needed (consider performance implications)
+                # ... (logic for checking more pages would go here if desired) ...
+
+                # If not found on first page (and subsequent pages if checked)
+                logger.warning(f"Title candidate '{title}' NOT found in PyMuPDF document text (checked first page).")
+                return False
+
+        except fitz.fitz.FileNotFoundError:
+             logger.error(f"PyMuPDF check failed: File not found at {pdf_path}")
+             return False
+        except fitz.fitz.FileDataError as fe:
+             logger.error(f"PyMuPDF check failed: Corrupted or invalid PDF file data at {pdf_path} ({fe})")
+             return False
+        except Exception as e:
+            # Catch other potential PyMuPDF errors (e.g., password protected, rendering issues)
+            logger.error(f"Error checking title in PyMuPDF for {pdf_path}: {e}", exc_info=True)
+            return False
+        # 'doc' is automatically closed by 'with' statement
+
     async def _extract_title_with_docling(self, pdf_path: str) -> Tuple[Optional[str], Optional[str]]:
         """
         Attempt to extract title from the highest-level markdown header on the first page using Docling.
@@ -488,9 +490,9 @@ class PDFProcessor:
             logger.error(f"Error during Docling processing for {pdf_path}: {str(e)}", exc_info=True)
             return None
 
-    async def _extract_with_pymupdf(self, doc: fitz.Document, initial_metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Extract text using PyMuPDF (simpler layout analysis)."""
-        logger.info(f"Extracting text using PyMuPDF for {doc.name}")
+    async def _extract_with_pymupdf(self, pdf_path: str, initial_metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Extract text using PyMuPDF (simpler layout analysis). Opens the document itself."""
+        logger.info(f"Extracting text using PyMuPDF for {pdf_path}")
         metadata = initial_metadata.copy()
         full_text = ""
         sections = {
@@ -499,39 +501,49 @@ class PDFProcessor:
             "discussion": "", "conclusion": "", "references": ""
         }
         try:
-            for page_num, page in enumerate(doc):
-                try:
-                    full_text += page.get_text("text") + "\n"
-                except Exception as page_err:
-                    logger.warning(f"Error extracting text from page {page_num+1} of {doc.name}: {page_err}")
-                    full_text += "[Content Extraction Error]\n"
+            # Open the document within this method
+            with fitz.open(pdf_path) as doc:
+                logger.info(f"Processing {len(doc)} pages with PyMuPDF...")
+                for page_num, page in enumerate(doc):
+                    try:
+                        # Consider adding flags if needed: page.get_text("text", flags=...)
+                        full_text += page.get_text("text") + "\n"
+                    except Exception as page_err:
+                        logger.warning(f"Error extracting text from page {page_num+1} of {pdf_path}: {page_err}")
+                        full_text += f"[Content Extraction Error on Page {page_num+1}]\n"
 
-            if not full_text:
-                logger.error(f"PyMuPDF extracted no text from {doc.name}")
-                return None
+                if not full_text:
+                    logger.error(f"PyMuPDF extracted no text from {pdf_path}")
+                    return None
 
-            language = await self._detect_language(full_text)
+                language = await self._detect_language(full_text)
 
-            logger.info("Attempting LLM section inference based on PyMuPDF full text.")
-            await self._infer_sections_with_llm(full_text, sections)
+                logger.info("Attempting LLM section inference based on PyMuPDF full text.")
+                await self._infer_sections_with_llm(full_text, sections)
 
-            # Ensure required sections exist
-            required_sections = ["abstract", "introduction", "methodology", "results", "discussion", "conclusion", "references"]
-            for section in required_sections:
-                 sections.setdefault(section, "") # Ensure key exists, default empty
+                # Ensure required sections exist
+                required_sections = ["abstract", "introduction", "methodology", "results", "discussion", "conclusion", "references"]
+                for section in required_sections:
+                     sections.setdefault(section, "") # Ensure key exists, default empty
 
-            # Populate abstract if still missing
-            if not sections["abstract"] and metadata.get("abstract"):
-                sections["abstract"] = metadata["abstract"]
+                # Populate abstract if still missing and available in initial metadata
+                if not sections["abstract"] and metadata.get("abstract"):
+                    sections["abstract"] = metadata["abstract"]
 
-            return {
-                "metadata": metadata,
-                "full_text": full_text[:self.max_text_length],
-                "sections": sections,
-                "language": language
-            }
+                return {
+                    "metadata": metadata,
+                    "full_text": full_text[:self.max_text_length],
+                    "sections": sections,
+                    "language": language
+                }
+        except fitz.fitz.FileNotFoundError:
+             logger.error(f"PyMuPDF extraction failed: File not found at {pdf_path}")
+             return None
+        except fitz.fitz.FileDataError as fe:
+             logger.error(f"PyMuPDF extraction failed: Corrupted or invalid PDF file data at {pdf_path} ({fe})")
+             return None
         except Exception as e:
-            logger.error(f"Error during PyMuPDF processing for {doc.name}: {str(e)}", exc_info=True)
+            logger.error(f"Error during PyMuPDF processing for {pdf_path}: {str(e)}", exc_info=True)
             return None
 
     async def _detect_language(self, text: str) -> Optional[str]:

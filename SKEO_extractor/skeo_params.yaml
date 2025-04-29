@@ -1,8 +1,16 @@
+logging:
+  log_file: "skeo_extraction.log" # Name of the log file
+  file_level: "INFO"             # Logging level for the file (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  console_level: "INFO"          # Logging level for the console output (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  file_mode: "a"                 # File mode: 'a' to append, 'w' to overwrite each run
+  log_format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+
 # LLM Configuration
 llm:
   api_endpoint: https://api.openai.com # Base URL for the LLM API
   #api_key: your_openai_api_key_here  # Overrides LLM_API_KEY env var
-  model: o3-mini  # LLM model identifier
+  model: o3  # LLM model identifier
   api_base_path: /v1 # Base path for API calls (e.g., /v1 for OpenAI)
   chat_endpoint: /chat/completions # Specific endpoint for chat completions
   # health_endpoint: /health # Optional: Health check endpoint if available
@@ -16,8 +24,13 @@ llm:
 pdf:
   extract_method: docling  # Options: docling, pymupdf
   search_metadata: true  # Whether to search for metadata online using SerpApi
-  max_text_length: 90000 # Max characters of full text to keep
+  #max_text_length: 90000 # Max characters of full text to keep
   language_detection: true # Enable language detection
+  docling_options:
+    # --- Explicitly disable image processing ---
+    do_picture_classification: false
+    do_picture_description: false
+    generate_picture_images: false
 
 # Metadata Services (SerpApi for Google Scholar)
 metadata:

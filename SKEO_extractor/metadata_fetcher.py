@@ -48,27 +48,26 @@ class SerpApiMetadataFetcher:
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry=retry_if_exception_type(aiohttp.ClientError))
     async def _make_serpapi_request(self, url: str, timeout: aiohttp.ClientTimeout) -> Optional[Dict]:
         """Internal method to make the cancellable request with SSL context."""
-        # Create connector inside the async function to avoid potential loop issues
-        # Pass the SSL context created during initialization
-        connector = aiohttp.TCPConnector(ssl=self.ssl_context)
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        # Pass the SSL context directly to the ClientSession
+        # aiohttp will handle connector creation/reuse more efficiently
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             logger.debug(f"Making GET request to: {url}")
-            async with session.get(url) as response:
+            # Pass ssl context here if needed explicitly, or often it's picked up
+            # For clarity and ensuring certifi is used:
+            async with session.get(url, ssl=self.ssl_context) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.warning(f"SerpApi request failed (HTTP {response.status}): {error_text[:500]}")
-                    # Raise for status to trigger tenacity retry for server/client errors
                     response.raise_for_status()
-                    return None # Should not be reached if raise_for_status works
+                    return None # Should not be reached
 
                 # Successfully received response
                 try:
                     data = await response.json()
                     return data
                 except json.JSONDecodeError as json_err:
-                     logger.error(f"Failed to decode JSON response from SerpApi: {json_err}")
-                     # Don't retry JSON errors, return None
-                     return None
+                    logger.error(f"Failed to decode JSON response from SerpApi: {json_err}")
+                    return None
 
     async def search_scholar_metadata(self, title: str, first_author: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
