@@ -19,6 +19,117 @@ Key components that SKEO extracts include:
 - Potential Applications
 - Limitations
 
+## Program Flows
+```mermaid
+  graph TD
+      subgraph Initialization [skeo.py]
+          A[Start] --> B{Parse Args};
+          B --> C[Load Params];
+          C -- Params --> D[Init SKEOExtractor];
+      end
+  
+      subgraph PDF Discovery [skeo.py]
+          D --> E[Scan PDF Dir Recursively];
+          E --> F{Output Exists?};
+          F -- Yes --> G[Skip PDF];
+          F -- No --> H[Add PDF to Process List];
+          G --> E;
+          H --> I[All PDFs Scanned?];
+          I -- No --> E;
+          I -- Yes --> J{Any PDFs to Process?};
+      end
+  
+      subgraph Extractor Init [skeo_extractor.py]
+          D -- Params --> D1[Init LLMClient];
+          D -- Params --> D2[Init MetadataFetcher];
+          D -- Params --> D3[Init PDFProcessor];
+          D -- Params --> D4[Init PromptManager];
+          D -- Params --> D5{Direct Upload?};
+          D5 -- Yes --> D6[Init StrapiClient];
+      end
+  
+      subgraph Concurrent Processing Loop [skeo.py]
+          direction LR
+          J -- Yes --> K[Start Async Loop w/ Semaphore];
+          K --> L(Process Single PDF);
+          L --> M{More PDFs?};
+          M -- Yes --> K;
+          M -- No --> N[Gather Results];
+      end
+  
+      subgraph Single PDF Processing [skeo_extractor.py - process_pdf]
+          L --> P1[Generate Paper ID];
+          P1 --> P2[Call PDFProcessor.extract_text_from_pdf];
+          P2 -- Text/Metadata --> P3[Validate Paper Data];
+          P3 --> P4[Async Extract Components];
+          P4 -- Components --> P5[Aggregate Results & Confidence];
+          P5 --> P6[Add Relationships];
+          P6 -- Aggregated Data --> P7[Call Save/Upload];
+          P7 --> L;
+      end
+  
+      subgraph Text/Metadata Extraction [pdf_processor.py - extract_text_from_pdf]
+          P2 --> T1[Extract Basic Metadata];
+          T1 --> T2[Attempt Title Extraction];
+          T2 -- Title/Author --> T3{Search Metadata?};
+          T3 -- Yes --> T4[Call MetadataFetcher];
+          T3 -- No --> T5;
+          T4 -- Online Meta --> T5[Consolidate Metadata];
+          T1 -- Basic Meta --> T5;
+          T2 -- Validated Title --> T5;
+          T5 -- Initial Meta --> T6{Extraction Method?};
+          T6 -- Docling --> T7[Call _extract_with_docling];
+          T6 -- PyMuPDF --> T8[Call _extract_with_pymupdf];
+          T7 -- Extracted Text --> T9;
+          T8 -- Extracted Text --> T9[Refine Metadata from Text];
+          T9 -- Final Text/Meta --> P2;
+      end
+  
+      subgraph Component Extraction [skeo_extractor.py - _extract_single_component]
+          style P4 fill:#f9f,stroke:#333,stroke-width:2px
+          P4 --> C1[Get Prompt from PromptManager];
+          C1 -- Prompt --> C2[Call LLMClient.extract_json];
+          C2 -- Raw JSON --> C3{Validate Schema?};
+          C3 -- Valid --> C4[Add IDs/Links];
+          C3 -- Invalid --> C2;
+          C4 -- Validated Component --> P4;
+      end
+  
+      subgraph Save & Upload [skeo_extractor.py - _save_and_upload_result]
+          P7 --> S1[Prepare Data for Strapi];
+          S1 --> S2[Save JSON Locally];
+          S2 --> S3{Direct Upload?};
+          S3 -- Yes --> S4[Call StrapiClient.upload_data];
+          S3 -- No --> P7;
+          S4 --> P7;
+      end
+  
+      subgraph Strapi Upload [strapi_client.py - upload_data]
+          style S4 fill:#ccf,stroke:#333,stroke-width:2px
+          S4 --> U1[Order Entities by Dependency];
+          U1 --> U2[Loop Through Entities];
+          U2 --> U3["Resolve Relationships (Internal ID -> Strapi ID)"]; %% <-- Line fixed here
+          U3 --> U4[Call _upload_single_entity];
+          U4 -- Success --> U5[Store Strapi ID];
+          U4 -- Failure --> U6[Log Error];
+          U5 --> U2;
+          U6 --> U2;
+          U2 -- Done --> S4;
+      end
+  
+      subgraph Finalization [skeo.py]
+          N --> Z[Log Summary];
+          J -- No --> Z;
+          Z --> ZA[End];
+      end
+  
+      %% Styling for key modules/subprocesses
+      style L fill:#eee,stroke:#333,stroke-width:2px
+      style P2 fill:#eee,stroke:#333,stroke-width:2px
+      style C2 fill:#eee,stroke:#333,stroke-width:2px
+      style T4 fill:#eee,stroke:#333,stroke-width:2px
+```
+    
 ## Installation
 
 ### Requirements
